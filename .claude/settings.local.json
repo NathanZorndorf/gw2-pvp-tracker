@@ -11,7 +11,12 @@
       "Bash(venv/Scripts/python.exe -m pip:*)",
       "Bash(venv/Scripts/pip.exe install:*)",
       "Bash(venv/Scripts/python.exe:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd core components: database, screenshot capture, and OCR\n\nImplemented foundational modules for GW2 PvP Tracker:\n\n- Database module with SQLite schema for players, matches, and participants\n  - Full CRUD operations\n  - Win rate calculations and match history queries\n  - Automatic statistics updates\n\n- Screenshot capture module using mss library\n  - Full screen and region capture\n  - Multi-monitor support\n  - Match start/end workflows\n\n- OCR engine with Tesseract integration\n  - Image preprocessing for accuracy\n  - Text extraction with fuzzy name matching\n  - Score validation\n\n- Configuration system with YAML support\n- Component test suite\n- Complete implementation plan documentation\n- README with usage examples\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git push)",
+      "Bash(ls:*)",
+      "Bash(choco install:*)",
+      "Bash(\"C:/Program Files/Tesseract-OCR/tesseract.exe\" --version)"
     ]
   }
 }

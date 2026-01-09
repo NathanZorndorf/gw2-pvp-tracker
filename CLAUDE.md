@@ -26,3 +26,6 @@
 *   **TESTING**: All code changes must be accompanied by new or updated tests, and all existing tests must pass before a pull request can be created.
 *   **SECURITY**: Prioritize security best practices, including input validation, preventing SQL injection (if using a database), and avoiding sensitive data in the codebase.
 
+
+
+* Don't automatically create a README when finishing a task unless specified to do so. 

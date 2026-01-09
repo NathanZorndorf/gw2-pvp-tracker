@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en-US">
+  <head>
+    <meta charset="UTF-8">
+
+<!-- Begin Jekyll SEO tag v2.8.0 -->
+<title>Improving the quality of the output | tessdoc</title>
+<meta name="generator" content="Jekyll v3.10.0" />
+<meta property="og:title" content="Improving the quality of the output" />
+<meta property="og:locale" content="en_US" />
+<meta name="description" content="Tesseract documentation" />
+<meta property="og:description" content="Tesseract documentation" />
+<link rel="canonical" href="https://tesseract-ocr.github.io/tessdoc/ImproveQuality.html" />
+<meta property="og:url" content="https://tesseract-ocr.github.io/tessdoc/ImproveQuality.html" />
+<meta property="og:site_name" content="tessdoc" />
+<meta property="og:type" content="website" />
+<meta name="twitter:card" content="summary" />
+<meta property="twitter:title" content="Improving the quality of the output" />
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"WebPage","description":"Tesseract documentation","headline":"Improving the quality of the output","url":"https://tesseract-ocr.github.io/tessdoc/ImproveQuality.html"}</script>
+<!-- End Jekyll SEO tag -->
+
+    <link rel="preconnect" href="https://fonts.gstatic.com">
+    <link rel="preload" href="https://fonts.googleapis.com/css?family=Open+Sans:400,700&display=swap" as="style" type="text/css" crossorigin>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#157878">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <link rel="stylesheet" href="/tessdoc/assets/css/style.css?v=1eb87a1adcec8074e8c76fbc5626a6ab8bfe4bb6">
+    <!-- start custom head snippets, customize with your own _includes/head-custom.html file -->
+
+<!-- Setup Google Analytics -->
+
+
+
+<!-- You can set your favicon here -->
+<!-- link rel="shortcut icon" type="image/x-icon" href="/tessdoc/favicon.ico" -->
+
+<!-- end custom head snippets -->
+
+  </head>
+  <body>
+    <a id="skip-to-content" href="#content">Skip to the content.</a>
+
+    <header class="page-header" role="banner">
+      <h1 class="project-name">Improving the quality of the output</h1>
+      <h2 class="project-tagline">Tesseract documentation</h2>
+      
+        <a href="https://github.com/tesseract-ocr/tessdoc" class="btn">View on GitHub</a>
+      
+      
+    </header>
+
+    <main id="content" class="main-content" role="main">
+      <h1 id="improving-the-quality-of-the-output">Improving the quality of the output</h1>
+
+<p>There are a variety of reasons you might not get good quality output from Tesseract. It’s important to note that, unless you’re using a very unusual font or a new language, retraining Tesseract is unlikely to help.</p>
+
+<ul>
+  <li><a href="#image-processing">Image processing</a>
+    <ul>
+      <li><a href="#rescaling">Rescaling</a></li>
+      <li><a href="#binarisation">Binarisation</a></li>
+      <li><a href="#noise-removal">Noise Removal</a></li>
+      <li><a href="#dilation-and-erosion">Dilation / Erosion</a></li>
+      <li><a href="#rotation--deskewing">Rotation / Deskewing</a></li>
+      <li><a href="#borders">Borders</a></li>
+      <li><a href="#transparency--alpha-channel">Transparency / Alpha channel</a></li>
+      <li><a href="#tools--libraries">Tools / Libraries</a></li>
+      <li><a href="#examples">Examples</a></li>
+      <li><a href="#tables-recognition">Tables recognition</a></li>
+    </ul>
+  </li>
+  <li><a href="#page-segmentation-method">Page segmentation method</a></li>
+  <li><a href="#dictionaries-word-lists-and-patterns">Dictionaries, word lists, and patterns</a></li>
+  <li><a href="#still-having-problems">Still having problems?</a></li>
+</ul>
+
+<h2 id="image-processing">Image processing</h2>
+
+<p>Tesseract does various image processing operations internally (using the Leptonica library) before doing the actual OCR. It generally does a very good job of this, but there will inevitably be cases where it isn’t good enough, which can result in a significant reduction in accuracy.</p>
+
+<p>You can see how Tesseract has processed the image by using the <a href="https://github.com/tesseract-ocr/tessdoc/blob/main/tess3/ControlParams.md">configuration variable</a> <code class="language-plaintext highlighter-rouge">tessedit_write_images</code> to <code class="language-plaintext highlighter-rouge">true</code> (or using configfile <code class="language-plaintext highlighter-rouge">get.images</code>) when running Tesseract. If the resulting <code class="language-plaintext highlighter-rouge">tessinput.tif</code> file looks problematic, try some of these image processing operations before passing the image to Tesseract.</p>
+
+<h3 id="inverting-images">Inverting images</h3>
+
+<p>While tesseract version 3.05 (and older) handle inverted image (dark background and light text) without problem, for 4.x version use dark text on light background.</p>
+
+<h3 id="rescaling">Rescaling</h3>
+
+<p>Tesseract works best on images which have a DPI of at least 300 dpi, so it may be beneficial to resize images. For more information see <a href="https://github.com/tesseract-ocr/tessdoc/blob/main/tess3/FAQ-Old.md#is-there-a-minimum--maximum-text-size-it-wont-read-screen-text">the FAQ</a>.</p>
+
+<p>“Willus Dotkom” made interesting test for <a href="https://groups.google.com/d/msg/tesseract-ocr/Wdh_JJwnw94/24JHDYQbBQAJ">Optimal image resolution</a> with suggestion for optimal Height of capital letter in pixels.</p>
+
+<h3 id="binarisation">Binarisation</h3>
+
+<p><img src="/tessdoc/images/binarisation.png" alt="binarisation.png" /></p>
+
+<p>This is converting an image to black and white. Tesseract does this internally (Otsu algorithm), but the result can be suboptimal, particularly if the page background is of uneven darkness.</p>
+
+<p>Tesseract 5.0.0 added two new Leptonica based binarization methods: Adaptive Otsu and Sauvola. Use <code class="language-plaintext highlighter-rouge">tesseract --print-parameters | grep thresholding_</code> to see the relevant configurable parameters.</p>
+
+<p>If you are not able to fix this by providing a better input image, you can try a different algorithm. See <a href="https://imagej.net/Auto_Threshold">ImageJ Auto Threshold</a> (java) or <a href="https://docs.opencv.org/master/d7/d4d/tutorial_py_thresholding.html">OpenCV Image Thresholding</a> (python) or <a href="https://scikit-image.org/docs/dev/auto_examples/segmentation/plot_thresholding.html">scikit-image Thresholding</a> documentation (python).</p>
+
+<h3 id="noise-removal">Noise Removal</h3>
+
+<p><img src="/tessdoc/images/noise.png" alt="noise.png" /></p>
+
+<p>Noise is random variation of brightness or colour in an image, that can make the text of the image more difficult to read. Certain types of noise cannot be removed by Tesseract in the binarisation step, which can cause accuracy rates to drop.</p>
+
+<h3 id="dilation-and-erosion">Dilation and Erosion</h3>
+
+<p>Bold characters or Thin characters (especially those with <a href="https://en.wikipedia.org/wiki/Serif">Serifs</a>) may impact the recognition of details and reduce recognition accuracy.  Many image processing programs allow <a href="http://www.mif.vu.lt/atpazinimas/dip/FIP/fip-Morpholo.html#Heading96">Dilation and Erosion</a> of edges of characters against a common background to dilate or grow in size (Dilation) or shrink (Erosion).</p>
+
+<p>Heavy ink bleeding from historical documents can be compensated for by using an Erosion technique. Erosion can be used to shrink characters back to their normal glyph structure.</p>
+
+<p>For example, GIMP’s Value Propagate filter can create Erosion of extra bold historical fonts by reducing the Lower threshold value.</p>
+
+<p>Original:</p>
+
+<p><img src="/tessdoc/images/Erosion_original.png" alt="Erosion_original.png" /></p>
+
+<p>Erosion applied:</p>
+
+<p><img src="/tessdoc/images/Erosion_applied.png" alt="Erosion_applied.png" /></p>
+
+<h3 id="rotation--deskewing">Rotation / Deskewing</h3>
+
+<p><img src="/tessdoc/images/skew-linedetection.png" alt="skew-linedetection.png" /></p>
+
+<p>A skewed image is when a page has been scanned when not straight. The quality of Tesseract’s line segmentation reduces significantly if a page is too skewed, which severely impacts the quality of the OCR. To address this rotate the page image so that the text lines are horizontal.</p>
+
+<h3 id="borders">Borders</h3>
+
+<h4 id="missing-borders">Missing borders</h4>
+
+<p>If you OCR just text area without any border, tesseract could have problems with it. See for some details in <a href="https://groups.google.com/forum/?utm_medium=email&amp;utm_source=footer#!msg/tesseract-ocr/v26a-RYPSOE/2Sppq61GBwAJ">tesseract user forum</a><a href="https://github.com/tesseract-ocr/tesseract/issues/427">#427</a> . You can easy add small border (e.g. 10 px) with <a href="http://imagemagick.org/script/index.php">ImageMagick®</a>:</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>convert  427-1.jpg  -bordercolor White -border 10x10 427-1b.jpg
+</code></pre></div></div>
+
+<h4 id="too-big-borders">Too big borders</h4>
+
+<p>Big borders (especially when processing a single letter/digit or one word on a large background) can cause problems (“empty page”).
+Please try to crop you input image to a text area with reasonable border (e.g. 10 px).</p>
+
+<h4 id="scanning-border-removal">Scanning border Removal</h4>
+
+<p><img src="/tessdoc/images/borders.png" alt="borders.png" /></p>
+
+<p>Scanned pages often have dark borders around them. These can be erroneously picked up as extra characters, especially if they vary in shape and gradation.</p>
+
+<h3 id="transparency--alpha-channel">Transparency / Alpha channel</h3>
+
+<p>Some image formats (e.g. png) can have an <a href="https://www.techopedia.com/definition/1945/alpha-channel">alpha-channel</a> for providing a transparency feature.</p>
+
+<p>Tesseract 3.0x expects that users remove the alpha channel from the image before using the image in tesseract. This can be done e.g. with ImageMagick command:</p>
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>convert input.png -alpha off output.png
+</code></pre></div></div>
+
+<p>Tesseract 4.00 removes the alpha channel with leptonica function <a href="https://github.com/DanBloomberg/leptonica/blob/648a3be52b6a004df14671de7004416f9a3ce489/src/pixconv.c#L133">pixRemoveAlpha()</a>: it removes the alpha component by blending it with a white background. In some cases (e.g. OCR of <a href="https://github.com/tesseract-ocr/tesseract/issues/2048#issuecomment-438015376">movie subtitles</a>) this can lead to problems, so users would need to remove the alpha channel (or pre-process the image by inverting image colors) by themselves.</p>
+
+<h3 id="tools--libraries">Tools / Libraries</h3>
+
+<ul>
+  <li><a href="http://www.leptonica.org/">Leptonica</a></li>
+  <li><a href="http://opencv.org/">OpenCV</a></li>
+  <li><a href="https://github.com/4lex4/scantailor-advanced#-scantailor-advanced">ScanTailor Advanced</a></li>
+  <li><a href="http://www.imagemagick.org">ImageMagick</a></li>
+  <li><a href="https://www.flameeyes.eu/projects/unpaper">unpaper</a></li>
+  <li><a href="http://rsb.info.nih.gov/ij/">ImageJ</a></li>
+  <li><a href="http://www.gimp.org">Gimp</a></li>
+  <li><a href="https://github.com/leha-bot/PRLib">PRLib</a> - Pre-Recognize Library with algorithms for improving OCR quality</li>
+</ul>
+
+<h3 id="examples">Examples</h3>
+
+<p>If you need an example how to improve image quality programmatically, have a look at this examples:</p>
+
+<ul>
+  <li><a href="http://felix.abecassis.me/2011/10/opencv-rotation-deskewing/">OpenCV - Rotation (Deskewing)</a> - c++ example</li>
+  <li><a href="http://www.fmwconcepts.com/imagemagick/textcleaner/index.php">Fred’s ImageMagick TEXTCLEANER</a> - bash script for processing a scanned document of text to clean the text background.</li>
+  <li><a href="https://gist.github.com/endolith/334196bac1cac45a4893#">rotation_spacing.py</a> - python script for automatic detection of rotation and line spacing of an image of text</li>
+  <li><a href="https://github.com/danvk/oldnyc/blob/master/ocr/tess/crop_morphology.py">crop_morphology.py</a> - <a href="http://www.danvk.org/2015/01/07/finding-blocks-of-text-in-an-image-using-python-opencv-and-numpy.html">Finding blocks of text in an image using Python, OpenCV and numpy</a></li>
+  <li><a href="https://www.pyimagesearch.com/2017/07/17/credit-card-ocr-with-opencv-and-python">Credit card OCR with OpenCV and Python</a></li>
+  <li><a href="https://github.com/mzucker/noteshrink">noteshrink</a> - python example how to clean up scans. Details in blog <a href="https://mzucker.github.io/2016/09/20/noteshrink.html">Compressing and enhancing hand-written notes</a>.</li>
+  <li><a href="https://github.com/mzucker/unproject_text">uproject text</a> - python example how to recover perspective of image. Details in blog <a href="https://mzucker.github.io/2016/10/11/unprojecting-text-with-ellipses.html">Unprojecting text with ellipses</a>.</li>
+  <li><a href="https://github.com/mzucker/page_dewarp">page_dewarp</a> - python example for Text page dewarping using a “cubic sheet” model. Details in blog <a href="https://mzucker.github.io/2016/08/15/page-dewarping.html">Page dewarping</a>.</li>
+  <li><a href="https://stackoverflow.com/questions/44752240/how-to-remove-shadow-from-scanned-images-using-opencv">How to remove shadow from scanned images using OpenCV</a></li>
+</ul>
+
+<h2 id="page-segmentation-method">Page segmentation method</h2>
+
+<p>By default Tesseract expects a page of text when it segments an image. If you’re just seeking to OCR a small region, try a different segmentation mode, using the <code class="language-plaintext highlighter-rouge">--psm</code> argument. Note that adding a white border to text which is too tightly cropped may also help, see <a href="https://web.archive.org/web/20151209085049/https://code.google.com/p/tesseract-ocr/issues/detail?id=398">issue 398</a>.</p>
+
+<p>To see a complete list of supported page segmentation modes, use <code class="language-plaintext highlighter-rouge">tesseract -h</code>. Here’s the list as of 3.21:</p>
+
+<div class="language-plaintext highlighter-rouge"><div class="highlight"><pre class="highlight"><code>  0    Orientation and script detection (OSD) only.
+  1    Automatic page segmentation with OSD.
+  2    Automatic page segmentation, but no OSD, or OCR.
+  3    Fully automatic page segmentation, but no OSD. (Default)
+  4    Assume a single column of text of variable sizes.
+  5    Assume a single uniform block of vertically aligned text.
+  6    Assume a single uniform block of text.
+  7    Treat the image as a single text line.
+  8    Treat the image as a single word.
+  9    Treat the image as a single word in a circle.
+ 10    Treat the image as a single character.
+ 11    Sparse text. Find as much text as possible in no particular order.
+ 12    Sparse text with OSD.
+ 13    Raw line. Treat the image as a single text line,
+			bypassing hacks that are Tesseract-specific.
+</code></pre></div></div>
+
+<h2 id="dictionaries-word-lists-and-patterns">Dictionaries, word lists, and patterns</h2>
+
+<p>By default Tesseract is optimized to recognize sentences of words. If you’re trying to recognize something else, like receipts, price lists, or codes, there are a few things you can do to improve the accuracy of your results, as well as double-checking that the appropriate <a href="#page-segmentation-method">segmentation method</a> is selected.</p>
+
+<p>Disabling the dictionaries Tesseract uses should increase recognition if most of your text isn’t dictionary words. They can be disabled by setting both of the <a href="/tessdoc/tess3/ControlParams.html">configuration variables</a> <code class="language-plaintext highlighter-rouge">load_system_dawg</code> and <code class="language-plaintext highlighter-rouge">load_freq_dawg</code> to <code class="language-plaintext highlighter-rouge">false</code>.</p>
+
+<p>It is also possible to add words to the word list Tesseract uses to help recognition, or to add common character patterns, which can further help to improve accuracy if you have a good idea of the sort of input you expect. This is explained in more detail in the <a href="https://github.com/tesseract-ocr/tesseract/blob/main/doc/tesseract.1.asc#config-files-and-augmenting-with-user-data">Tesseract manual</a>.</p>
+
+<p>If you know you will only encounter a subset of the characters available in the language, such as only digits, you can use the <code class="language-plaintext highlighter-rouge">tessedit_char_whitelist</code> <a href="/tessdoc/tess3/ControlParams.html">configuration variable</a>. See the <a href="/tessdoc/tess3/FAQ-Old.html#how-do-i-recognize-only-digits">FAQ for an example</a>.</p>
+
+<h2 id="tables-recognition">Tables recognition</h2>
+
+<p>It is known tesseract has a problem to recognize text/data from tables (see <a href="https://github.com/tesseract-ocr/tesseract/issues">issues tracker</a>) without custom segmentation/layout analysis. You can try to use/test <a href="https://github.com/tesseract-ocr/tesseract/issues/1714#issuecomment-588183356">Sintun proposal</a> or get some ideas from <a href="https://fazlurnu.com/2020/06/23/text-extraction-from-a-table-image-using-pytesseract-and-opencv">Text Extraction from a Table Image, using PyTesseract and OpenCV</a>/<a href="https://github.com/fazlurnu/Text-Extraction-Table-Image">code for Text-Extraction-Table-Image</a></p>
+
+<h2 id="still-having-problems">Still having problems?</h2>
+
+<p>If you’ve tried all the above and are still getting low accuracy results, <a href="https://groups.google.com/forum/?fromgroups#!forum/tesseract-ocr">ask on the forum</a> for help, ideally posting an example image.</p>
+
+
+      <footer class="site-footer">
+        
+          <span class="site-footer-owner"><a href="https://github.com/tesseract-ocr/tessdoc">tessdoc</a> is maintained by <a href="https://github.com/tesseract-ocr">tesseract-ocr</a>.</span>
+        
+        <span class="site-footer-credits">This page was generated by <a href="https://pages.github.com">GitHub Pages</a>.</span>
+      </footer>
+    </main>
+  </body>
+</html>
