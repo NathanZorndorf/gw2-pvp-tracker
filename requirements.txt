@@ -1,0 +1,21 @@
+# Core Dependencies
+opencv-python>=4.8.0
+pytesseract>=0.3.10
+numpy>=1.26.0
+Pillow>=10.0.0
+
+# OCR Enhancement
+thefuzz>=0.20.0
+python-Levenshtein>=0.21.0
+
+# Screenshot Capture
+mss>=9.0.0
+
+# Hotkeys
+keyboard>=0.13.5
+
+# Configuration
+PyYAML>=6.0.0
+
+# Development
+pytest>=7.4.0

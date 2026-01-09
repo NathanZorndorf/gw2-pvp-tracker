@@ -1,0 +1,56 @@
+# GW2 PvP Tracker Configuration
+
+# Screen Capture
+screen:
+  monitor: 0  # Primary monitor
+  capture_delay: 0.5  # Seconds to wait after hotkey press
+
+# Computer Vision
+cv:
+  template_match_threshold: 0.7
+  highlight_hsv_lower: [20, 50, 50]
+  highlight_hsv_upper: [40, 255, 255]
+  profession_match_threshold: 0.6
+  scales: [0.8, 0.9, 1.0, 1.1, 1.2]
+
+# OCR Settings
+ocr:
+  tesseract_path: "C:/Program Files/Tesseract-OCR/tesseract.exe"  # Windows default
+  name_psm: 7  # Single line mode
+  score_psm: 7
+  score_whitelist: "0123456789"
+  name_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz. "
+
+# Fuzzy Matching
+fuzzy:
+  name_match_threshold: 80  # 0-100
+
+# Database
+database:
+  path: "data/pvp_tracker.db"
+  backup_on_startup: true
+
+# Hotkeys
+hotkeys:
+  match_start: "F8"
+  match_end: "F9"
+  exit: "esc"
+
+# Paths
+paths:
+  templates: "templates/"
+  screenshots: "screenshots/"
+  logs: "logs/"
+
+# Logging
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  file: "logs/app.log"
+  max_size_mb: 10
+  backup_count: 5
+
+# UI
+ui:
+  console_width: 60
+  show_ascii_art: true
+  color_enabled: true
