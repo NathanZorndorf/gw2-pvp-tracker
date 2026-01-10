@@ -33,7 +33,7 @@ class LiveCapture:
 
     def __init__(self):
         self.config = Config()
-        self.capture = ScreenCapture()
+        # Don't initialize ScreenCapture here - create new instance per capture
         self.running = True
         self.match_start_time = None
         self.match_screenshots = {"start": None, "end": None}
@@ -60,8 +60,11 @@ class LiveCapture:
             # Small delay to ensure scoreboard is fully rendered
             time.sleep(0.3)
 
+            # Create new ScreenCapture instance (thread-safe)
+            capture = ScreenCapture()
+
             # Capture full screen
-            full_path = self.capture.capture_and_save_full("match_start")
+            full_path = capture.capture_and_save_full("match_start")
 
             self.match_start_time = datetime.now()
             self.match_screenshots["start"] = full_path
@@ -81,8 +84,11 @@ class LiveCapture:
             # Small delay to ensure final scores are visible
             time.sleep(0.3)
 
+            # Create new ScreenCapture instance (thread-safe)
+            capture = ScreenCapture()
+
             # Capture full screen
-            full_path = self.capture.capture_and_save_full("match_end")
+            full_path = capture.capture_and_save_full("match_end")
 
             self.match_screenshots["end"] = full_path
 
