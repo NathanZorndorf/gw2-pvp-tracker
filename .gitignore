@@ -52,3 +52,6 @@ htmlcov/
 # Environment
 .env
 *.env
+
+
+**/debug/*

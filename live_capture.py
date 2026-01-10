@@ -37,6 +37,7 @@ class LiveCapture:
         self.running = True
         self.match_start_time = None
         self.match_screenshots = {"start": None, "end": None}
+        self.detected_user_character = None  # Stores (char_name, team) from F8 detection
 
         print("\n" + "=" * 70)
         print("  GW2 PvP Tracker - Live Capture Mode")
@@ -70,6 +71,11 @@ class LiveCapture:
             self.match_screenshots["start"] = full_path
 
             print(f"  -> Saved: {full_path}")
+
+            # Detect user character from F8 screenshot
+            print("  -> Detecting your character...")
+            self._detect_user_from_screenshot(full_path)
+
             print("  -> Ready! Press F9 when match ends.\n")
 
         except Exception as e:
@@ -101,21 +107,95 @@ class LiveCapture:
                 seconds = int(duration.total_seconds() % 60)
                 print(f"  -> Match duration: {minutes}m {seconds}s")
 
-            print("\nMatch screenshots captured:")
-            print(f"  Start: {self.match_screenshots['start']}")
-            print(f"  End:   {self.match_screenshots['end']}")
-            print("\nYou can now:")
-            print("  1. Use manual_match_entry.py to log this match")
-            print("  2. Press F8 to start capturing next match")
-            print()
+            # Auto-process and log match
+            print("\n  -> Processing match data (OCR + logging)...")
+            self._auto_process_match()
 
             # Reset for next match
             self.match_start_time = None
             self.match_screenshots = {"start": None, "end": None}
+            self.detected_user_character = None
 
         except Exception as e:
             logger.error(f"Failed to capture match end: {e}")
             print(f"  -> ERROR: {e}\n")
+
+    def _detect_user_from_screenshot(self, screenshot_path: str):
+        """Detect user character from F8/F9 screenshot using bold detection."""
+        try:
+            from automation.match_processor import MatchProcessor
+            from database.models import Database
+
+            db = Database(self.config.get('database.path'))
+            processor = MatchProcessor(self.config, db)
+
+            # Detect user from screenshot
+            user_char, user_team, confidence = processor.detect_user_from_image(screenshot_path)
+
+            if user_char:
+                print(f"  -> Detected: {user_char} ({user_team.upper()} team) [confidence: {confidence:.2f}]")
+                self.detected_user_character = (user_char, user_team)
+            else:
+                print(f"  -> WARNING: Could not detect your character (bold name not found)")
+                self.detected_user_character = None
+
+            db.close()
+
+        except Exception as e:
+            logger.error(f"User detection failed: {e}")
+            print(f"  -> WARNING: User detection failed: {e}")
+            self.detected_user_character = None
+
+    def _auto_process_match(self):
+        """Process captured match and log to database."""
+        try:
+            from automation.match_processor import MatchProcessor
+            from database.models import Database
+
+            # Initialize processor
+            db = Database(self.config.get('database.path'))
+            processor = MatchProcessor(self.config, db)
+
+            # Process screenshots (pass detected user from F8 if available)
+            match_data = processor.process_match(
+                self.match_screenshots['start'],
+                self.match_screenshots['end'],
+                detected_user=self.detected_user_character
+            )
+
+            # Display extraction results
+            if match_data['success']:
+                print(f"  -> Scores: Red {match_data['red_score']} - Blue {match_data['blue_score']}")
+                print(f"  -> Your character: {match_data['user_character']} ({match_data['user_team'].upper()} team)")
+                print(f"  -> Extracted {len(match_data['players'])} players")
+
+                if match_data['validation_errors']:
+                    print(f"  -> Warnings: {', '.join(match_data['validation_errors'])}")
+            else:
+                print(f"  -> ERROR: {match_data['error']}")
+                print(f"  -> Match will be logged with partial data")
+
+            # Log to database (best-effort)
+            match_id = processor.log_match(
+                match_data,
+                self.match_screenshots['start'],
+                self.match_screenshots['end']
+            )
+
+            # Display result
+            winner = 'Blue' if match_data.get('blue_score', 0) > match_data.get('red_score', 0) else 'Red'
+            user_result = 'WIN' if match_data.get('user_team', '').lower() == winner.lower() else 'LOSS'
+
+            print(f"\n  -> Match #{match_id} logged successfully!")
+            print(f"  -> Result: {user_result}")
+            print(f"  -> Run 'python view_stats.py' to see updated stats\n")
+
+            db.close()
+
+        except Exception as e:
+            logger.error(f"Auto-processing failed: {e}", exc_info=True)
+            print(f"\n  -> ERROR: Auto-processing failed: {e}")
+            print(f"  -> You can manually log this match using log_latest_match.py\n")
 
     def exit_program(self):
         """Exit the program."""
