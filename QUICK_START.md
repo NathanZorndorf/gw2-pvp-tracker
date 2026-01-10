@@ -38,14 +38,17 @@ When your match ends:
 After capturing both screenshots, run:
 
 ```bash
-python manual_match_entry.py
+python log_latest_match.py
 ```
 
 This will:
-- Show you the match data from the screenshots
-- Ask which team you were on
+- Find your most recent match screenshots
+- Prompt you to enter the scores, team, and player names
 - Log the match to the database
 - Update all player statistics
+
+**Note:** You'll need to manually type in player names and professions for now.
+(OCR auto-extraction coming in a future update!)
 
 ## Step 4: View Your Stats
 
