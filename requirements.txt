@@ -4,6 +4,9 @@ pytesseract>=0.3.10
 numpy>=1.26.0
 Pillow>=10.0.0
 
+# OCR Engines
+easyocr>=1.7.0  # Recommended OCR engine (better accuracy for game fonts)
+
 # OCR Enhancement
 thefuzz>=0.20.0
 python-Levenshtein>=0.21.0

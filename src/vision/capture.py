@@ -102,7 +102,7 @@ class ScreenCapture:
         suffix: str = ""
     ) -> str:
         """
-        Save screenshot to disk with timestamp.
+        Save screenshot to disk with timestamp at maximum quality.
 
         Args:
             image: Image as numpy array
@@ -116,11 +116,13 @@ class ScreenCapture:
         filename = f"{prefix}_{timestamp}{suffix}.png"
         filepath = self.screenshots_dir / filename
 
-        # Convert RGB to PIL Image and save
+        # Convert RGB to PIL Image and save with max quality
         pil_image = Image.fromarray(image)
-        pil_image.save(filepath)
+        # PNG compress_level=0 means no compression (fastest, max quality)
+        # For OCR we want pixel-perfect capture
+        pil_image.save(filepath, format='PNG', compress_level=0)
 
-        logger.info(f"Saved screenshot: {filepath}")
+        logger.info(f"Saved screenshot: {filepath} ({image.shape[1]}x{image.shape[0]})")
         return str(filepath)
 
     def capture_and_save_full(

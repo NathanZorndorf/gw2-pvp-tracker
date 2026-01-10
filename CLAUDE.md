@@ -1,31 +1,81 @@
-# Project Name
+# CLAUDE.md
 
-## Quick Facts
-*   **Stack**: Python (specify version, e.g., 3.11), relevant frameworks (e.g., Django, Flask, FastAPI, Pandas)
-*   **Windows**: Program and guild wars 2 run in windows. 
-*   **Virtual Environment**: `venv` (or `conda`)
-*   **Dependency File**: `requirements.txt` (or `pyproject.toml`, `environment.yml`)
-*   **Test Command**: `pytest`
-*   **Lint Command**: `pylint` or `flake8`
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Key Directories
-*   `src/`: Primary application source code
-*   `tests/`: Test files and test data
-*   `docs/`: Project documentation
-*   `notebooks/`: Jupyter notebooks for data analysis (if applicable)
+## Project Overview
 
-## Code Style
-*   Follow [PEP 8](peps.python.org) style guidelines.
-*   Use type hints for function signatures and variables.
-*   Write clear, descriptive docstrings for all functions and classes (NumPy or Google style preferred).
-*   Prefer f-strings for string formatting.
+GW2 PvP Tracker is a Windows desktop application that automatically tracks Guild Wars 2 PvP match performance using computer vision and OCR. It captures screenshots at match start/end, extracts player names and scores via Tesseract OCR, and maintains a SQLite database for historical analysis.
+
+**Key Design Philosophy:** The app never asks who the user is - it automatically detects the user's character via bold text highlighting on the scoreboard.
+
+## Tech Stack
+
+- Python 3.10+ (Windows)
+- OpenCV for computer vision
+- Tesseract OCR for text extraction
+- SQLite3 for local database
+- keyboard library for global hotkeys (requires admin on Windows)
+- thefuzz for fuzzy string matching
+
+## Commands
+
+```bash
+# Activate venv (MANDATORY before any Python commands)
+.\venv\Scripts\activate
+
+# Run main application (requires admin privileges)
+python live_capture.py
+
+# Interactive match logging from screenshots
+python log_latest_match.py
+
+# Calibrate OCR region coordinates
+python calibrate_coordinates.py
+
+# Run tests
+pytest
+
+# Lint
+pylint src/
+flake8 src/
+```
+
+## Architecture
+
+```
+src/
+├── config.py           # YAML config loader (Config class)
+├── database/
+│   └── models.py       # SQLite operations (Database class)
+├── vision/
+│   ├── capture.py      # Screenshot capture (ScreenCapture class)
+│   └── ocr_engine.py   # OCR + preprocessing (OCREngine class)
+└── automation/
+    └── match_processor.py  # Match extraction pipeline (MatchProcessor class)
+```
+
+### Data Flow
+
+1. **F8 hotkey** → `ScreenCapture` captures match start screenshot → `MatchProcessor.detect_user_from_image()` identifies user via bold text detection
+2. **F9 hotkey** → `ScreenCapture` captures match end screenshot → `MatchProcessor.process_match()` extracts scores and all 10 player names → `Database.log_match()` updates player statistics
+
+### Database Schema
+
+Three tables: `players` (character stats), `matches` (match metadata), `match_participants` (junction table with profession/team). The `player_winrates` view aggregates win rate statistics.
+
+### Configuration
+
+`config.yaml` contains all tunable parameters:
+- `roster_regions`: OCR extraction coordinates (calibrated for 4K resolution - divide by 2 for 1080p)
+- `ocr`: Tesseract path, PSM modes, character whitelists
+- `bold_detection`: Composite algorithm weights for user detection
+- `hotkeys`: F8 (match start), F9 (match end), ESC (exit)
 
 ## Critical Rules
-*   **MANDATORY VENV USAGE**: Always activate the virtual environment before running any Python commands or installing packages. Use `source venv/bin/activate` (Linux/macOS) or `.\venv\Scripts\activate` (Windows).
-*   **CONCURRENT OPERATIONS**: Batch all related Python operations (venv setup, pip installs, tests) into a single message or action to ensure coordination.
-*   **TESTING**: All code changes must be accompanied by new or updated tests, and all existing tests must pass before a pull request can be created.
-*   **SECURITY**: Prioritize security best practices, including input validation, preventing SQL injection (if using a database), and avoiding sensitive data in the codebase.
 
-
-
-* Don't automatically create a README when finishing a task unless specified to do so. 
+- **MANDATORY VENV USAGE**: Always activate venv before running any Python commands
+- **Windows Admin Required**: Global hotkeys require admin privileges
+- **Tesseract Required**: Must be installed at path specified in config.yaml
+- **Resolution Sensitive**: Roster region coordinates in config.yaml are for 4K. Adjust for other resolutions
+- **Keep Root Clean**: Put new files in appropriate subdirectories (`scripts/`, `src/`, `docs/`, etc.)
+- **PEP 8 Style**: Use type hints, f-strings, clear docstrings

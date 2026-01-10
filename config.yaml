@@ -15,11 +15,14 @@ cv:
 
 # OCR Settings
 ocr:
+  engine: "easyocr"  # "easyocr" (recommended) or "tesseract"
   tesseract_path: "C:/Program Files/Tesseract-OCR/tesseract.exe"  # Windows default
-  name_psm: 7  # Single line mode
+  name_psm: 7  # Single line mode (tesseract only)
   score_psm: 7
   score_whitelist: "0123456789"
   name_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz. "
+  use_clahe: true  # CLAHE contrast enhancement (recommended for EasyOCR)
+  resize_factor: 2.0  # Scale factor for OCR preprocessing
 
 # Fuzzy Matching
 fuzzy:
@@ -54,3 +57,56 @@ ui:
   console_width: 60
   show_ascii_art: true
   color_enabled: true
+
+# Roster Region Coordinates (Based on 3840x2160 4K full screen images)
+# Coordinates calibrated from full-screen-start-bounding-boxes.csv
+# NOTE: These are for 4K resolution. For 1080p, divide all values by 2.
+roster_regions:
+  # Scoreboard panel boundaries
+  scoreboard:
+    x_start: 1200     # Left edge of scoreboard panel
+    x_end: 2700       # Right edge of scoreboard panel
+    y_start: 580      # Top edge of scoreboard
+    y_end: 980        # Bottom edge of player list
+
+  # Red team (left side) - from bounding box CSV
+  red_team_names:
+    x_start: 1222     # Start of red team names
+    x_end: 1920       # End of red team names (x + width)
+    y_start: 670      # First player row
+    row_height: 62    # Height per player row (average)
+    num_players: 5
+
+  # Blue team (right side) - from bounding box CSV
+  blue_team_names:
+    x_start: 1985     # Start of blue team names
+    x_end: 2694       # End of blue team names (x + width)
+    y_start: 672      # First player row
+    row_height: 60    # Height per player row (average)
+    num_players: 5
+
+  # Score display (top of scoreboard) - calibrated for EasyOCR
+  red_score_box:
+    x: 1740           # X position of red score
+    y: 590            # Y position
+    width: 150        # Width of score area
+    height: 75        # Height of score area
+
+  blue_score_box:
+    x: 1950           # X position of blue score
+    y: 590            # Y position
+    width: 150        # Width of score area
+    height: 75        # Height of score area
+
+# Debug Settings
+debug:
+  save_regions: true      # Save extracted regions as images for debugging
+  output_dir: "data/debug"  # Directory for debug images
+
+# Bold Text Detection Settings
+bold_detection:
+  method: "composite"  # composite, stroke_width, edge_density, brightness
+  stroke_width_weight: 0.4
+  edge_density_weight: 0.3
+  brightness_weight: 0.3
+  confidence_threshold: 0.15  # Minimum difference to consider bold (0.0-1.0)

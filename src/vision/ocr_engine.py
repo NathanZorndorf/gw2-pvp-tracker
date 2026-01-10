@@ -1,6 +1,6 @@
 """
 OCR engine module for text extraction from screenshots.
-Handles image preprocessing and Tesseract OCR integration.
+Handles image preprocessing and OCR integration (EasyOCR or Tesseract).
 """
 
 import cv2
@@ -18,24 +18,79 @@ class OCREngine:
 
     def __init__(
         self,
+        engine: str = "easyocr",
         tesseract_path: Optional[str] = None,
         name_whitelist: str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz. ",
-        score_whitelist: str = "0123456789"
+        score_whitelist: str = "0123456789",
+        use_clahe: bool = True,
+        resize_factor: float = 2.0
     ):
         """
         Initialize OCR engine.
 
         Args:
+            engine: OCR engine to use ("easyocr" or "tesseract")
             tesseract_path: Path to tesseract executable
             name_whitelist: Characters allowed in player names
             score_whitelist: Characters allowed in scores
+            use_clahe: Whether to use CLAHE contrast enhancement
+            resize_factor: Scale factor for OCR preprocessing
         """
+        self.engine = engine.lower()
+        self.use_clahe = use_clahe
+        self.resize_factor = resize_factor
+        self.name_whitelist = name_whitelist
+        self.score_whitelist = score_whitelist
+        self.easyocr_reader = None
+
         if tesseract_path:
             pytesseract.pytesseract.tesseract_cmd = tesseract_path
 
-        self.name_whitelist = name_whitelist
-        self.score_whitelist = score_whitelist
-        logger.info("OCR engine initialized")
+        # Initialize EasyOCR if selected
+        if self.engine == "easyocr":
+            self._init_easyocr()
+
+        logger.info(f"OCR engine initialized (engine={self.engine}, clahe={use_clahe})")
+
+    def _init_easyocr(self):
+        """Initialize EasyOCR reader (lazy loading)."""
+        try:
+            import easyocr
+            self.easyocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+            logger.info("EasyOCR reader initialized")
+        except ImportError:
+            logger.warning("EasyOCR not installed, falling back to Tesseract")
+            self.engine = "tesseract"
+        except Exception as e:
+            logger.error(f"Failed to initialize EasyOCR: {e}, falling back to Tesseract")
+            self.engine = "tesseract"
+
+    def apply_clahe(self, image: np.ndarray) -> np.ndarray:
+        """
+        Apply CLAHE (Contrast Limited Adaptive Histogram Equalization).
+
+        Args:
+            image: Input BGR image
+
+        Returns:
+            Contrast-enhanced BGR image
+        """
+        if len(image.shape) == 2:
+            # Grayscale image
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+            return clahe.apply(image)
+
+        # Convert to LAB color space
+        lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+
+        # Apply CLAHE to L channel
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        l = clahe.apply(l)
+
+        # Merge and convert back
+        enhanced = cv2.merge([l, a, b])
+        return cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
 
     def preprocess_for_ocr(
         self,
@@ -87,11 +142,11 @@ class OCREngine:
         preprocess: bool = True
     ) -> str:
         """
-        Extract text from image using Tesseract.
+        Extract text from image using configured OCR engine.
 
         Args:
             image: Input image
-            psm: Page segmentation mode (7 = single line)
+            psm: Page segmentation mode (7 = single line, Tesseract only)
             whitelist: Character whitelist
             preprocess: Whether to preprocess image
 
@@ -99,27 +154,86 @@ class OCREngine:
             Extracted text (stripped)
         """
         try:
-            # Preprocess if requested
+            # Preprocess image
             if preprocess:
-                processed = self.preprocess_for_ocr(image)
+                processed = self._preprocess_for_engine(image)
             else:
                 processed = image
 
-            # Build Tesseract config
-            config_parts = [f"--psm {psm}"]
-            if whitelist:
-                config_parts.append(f"-c tessedit_char_whitelist={whitelist}")
-            config = " ".join(config_parts)
-
-            # Run OCR
-            text = pytesseract.image_to_string(processed, config=config).strip()
-            logger.debug(f"OCR extracted: '{text}'")
-
-            return text
+            # Use appropriate OCR engine
+            if self.engine == "easyocr" and self.easyocr_reader:
+                return self._extract_with_easyocr(processed, whitelist)
+            else:
+                return self._extract_with_tesseract(processed, psm, whitelist)
 
         except Exception as e:
             logger.error(f"OCR extraction failed: {e}")
             return ""
+
+    def _preprocess_for_engine(self, image: np.ndarray) -> np.ndarray:
+        """Preprocess image for the current OCR engine."""
+        processed = image.copy()
+
+        # Apply CLAHE if enabled
+        if self.use_clahe:
+            processed = self.apply_clahe(processed)
+
+        # Resize
+        if self.resize_factor != 1.0:
+            processed = cv2.resize(
+                processed, None,
+                fx=self.resize_factor, fy=self.resize_factor,
+                interpolation=cv2.INTER_CUBIC
+            )
+
+        return processed
+
+    def _extract_with_easyocr(
+        self,
+        image: np.ndarray,
+        whitelist: Optional[str] = None
+    ) -> str:
+        """Extract text using EasyOCR."""
+        try:
+            results = self.easyocr_reader.readtext(
+                image,
+                allowlist=whitelist if whitelist else None
+            )
+
+            if results:
+                # Combine all detected text with confidence > 0.3
+                texts = [text for _, text, conf in results if conf > 0.3]
+                extracted = ' '.join(texts)
+                logger.debug(f"EasyOCR extracted: '{extracted}'")
+                return extracted
+
+            return ""
+
+        except Exception as e:
+            logger.error(f"EasyOCR extraction failed: {e}")
+            return ""
+
+    def _extract_with_tesseract(
+        self,
+        image: np.ndarray,
+        psm: int = 7,
+        whitelist: Optional[str] = None
+    ) -> str:
+        """Extract text using Tesseract."""
+        # For Tesseract, apply additional preprocessing
+        processed = self.preprocess_for_ocr(image)
+
+        # Build Tesseract config
+        config_parts = [f"--psm {psm}"]
+        if whitelist:
+            config_parts.append(f"-c tessedit_char_whitelist={whitelist}")
+        config = " ".join(config_parts)
+
+        # Run OCR
+        text = pytesseract.image_to_string(processed, config=config).strip()
+        logger.debug(f"Tesseract extracted: '{text}'")
+
+        return text
 
     def extract_player_name(
         self,
@@ -181,8 +295,15 @@ class OCREngine:
             preprocess=True
         )
 
+        # Clean up extracted text (remove spaces, non-digits)
+        text = ''.join(c for c in text if c.isdigit())
+
         # Parse integer
         try:
+            if not text:
+                logger.warning("No digits extracted from score region")
+                return None
+
             score = int(text)
 
             # Validate GW2 PvP score range
@@ -190,6 +311,7 @@ class OCREngine:
                 logger.warning(f"Score {score} outside valid range (0-500)")
                 return None
 
+            logger.debug(f"Extracted score: {score}")
             return score
 
         except ValueError:
@@ -344,3 +466,115 @@ class OCREngine:
 
         is_valid = len(errors) == 0
         return is_valid, errors
+
+    def extract_player_name_regions(
+        self,
+        image: np.ndarray,
+        regions_config: dict
+    ) -> List[Tuple[np.ndarray, str]]:
+        """
+        Extract individual player name regions from roster screenshot.
+
+        Args:
+            image: Full screenshot image
+            regions_config: Dictionary with red_team_names and blue_team_names config
+
+        Returns:
+            List of (cropped_image, team) tuples for all 10 players
+        """
+        regions = []
+
+        # Extract red team names
+        red_config = regions_config['red_team_names']
+        for i in range(red_config['num_players']):
+            y_start = red_config['y_start'] + (i * red_config['row_height'])
+            y_end = y_start + red_config['row_height']
+            x_start = red_config['x_start']
+            x_end = red_config['x_end']
+
+            name_region = image[y_start:y_end, x_start:x_end]
+            regions.append((name_region, 'red'))
+
+        # Extract blue team names
+        blue_config = regions_config['blue_team_names']
+        for i in range(blue_config['num_players']):
+            y_start = blue_config['y_start'] + (i * blue_config['row_height'])
+            y_end = y_start + blue_config['row_height']
+            x_start = blue_config['x_start']
+            x_end = blue_config['x_end']
+
+            name_region = image[y_start:y_end, x_start:x_end]
+            regions.append((name_region, 'blue'))
+
+        logger.debug(f"Extracted {len(regions)} player name regions")
+        return regions
+
+    def _calculate_bold_score(self, region: np.ndarray) -> float:
+        """
+        Calculate bold score using multiple metrics.
+
+        Args:
+            region: Image region containing text
+
+        Returns:
+            Composite score (0.0-1.0, higher = more bold)
+        """
+        # Convert to grayscale if needed
+        if len(region.shape) == 3:
+            gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
+        else:
+            gray = region.copy()
+
+        # Metric 1: Stroke width (white pixel density after thresholding)
+        # Bold text has thicker strokes → more white pixels
+        _, binary = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
+        white_ratio = np.sum(binary == 255) / binary.size
+
+        # Metric 2: Edge density (Canny edge detection)
+        # Bold text has more defined edges
+        edges = cv2.Canny(gray, 50, 150)
+        edge_ratio = np.sum(edges > 0) / edges.size
+
+        # Metric 3: Mean brightness
+        # Bold text appears slightly brighter in GW2 UI
+        brightness = np.mean(gray) / 255.0
+
+        # Weighted composite score
+        score = (white_ratio * 0.4) + (edge_ratio * 0.3) + (brightness * 0.3)
+
+        logger.debug(f"Bold score: {score:.3f} (white={white_ratio:.3f}, edge={edge_ratio:.3f}, bright={brightness:.3f})")
+        return score
+
+    def detect_bold_text(
+        self,
+        name_regions: List[Tuple[np.ndarray, str]]
+    ) -> Tuple[int, float]:
+        """
+        Detect which name region contains bold text (user's character).
+
+        Args:
+            name_regions: List of (cropped_image, team) tuples for all 10 players
+
+        Returns:
+            Tuple of (index, confidence_score)
+            index: Index (0-9) of the bold name region
+            confidence_score: Difference between highest and second-highest scores
+        """
+        # Calculate bold scores for each region
+        bold_scores = []
+        for region, team in name_regions:
+            score = self._calculate_bold_score(region)
+            bold_scores.append(score)
+
+        # Find index with highest bold score
+        bold_index = int(np.argmax(bold_scores))
+        max_score = bold_scores[bold_index]
+
+        # Calculate confidence: difference between highest and second-highest
+        sorted_scores = sorted(bold_scores, reverse=True)
+        confidence = sorted_scores[0] - sorted_scores[1] if len(sorted_scores) > 1 else max_score
+
+        logger.info(f"Bold text detected at index {bold_index} (score: {max_score:.3f}, confidence: {confidence:.3f})")
+        logger.debug(f"All scores: {[f'{s:.3f}' for s in bold_scores]}")
+
+        return bold_index, confidence
