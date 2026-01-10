@@ -2,11 +2,22 @@
 
 ## Step 1: Start Live Capture
 
-Open a terminal and run:
+**IMPORTANT:** On Windows, you need to run as Administrator for hotkeys to work.
 
-```bash
-python live_capture.py
-```
+1. Right-click on **Command Prompt** or **PowerShell**
+2. Select **"Run as administrator"**
+3. Navigate to the project folder:
+   ```bash
+   cd C:\Users\nzorn\Documents\gw2-pvp-tracker
+   ```
+4. Activate virtual environment:
+   ```bash
+   venv\Scripts\activate
+   ```
+5. Run live capture:
+   ```bash
+   python live_capture.py
+   ```
 
 Press Enter to start listening for hotkeys.
 

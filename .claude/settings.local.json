@@ -16,7 +16,11 @@
       "Bash(git push)",
       "Bash(ls:*)",
       "Bash(choco install:*)",
-      "Bash(\"C:/Program Files/Tesseract-OCR/tesseract.exe\" --version)"
+      "Bash(\"C:/Program Files/Tesseract-OCR/tesseract.exe\" --version)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd testing tools and manual match entry workflow\n\nAdded comprehensive testing and workflow scripts:\n\n- Manual match entry tool \\(manual_match_entry.py\\)\n  - Enter match data from screenshots\n  - Automatic database logging\n  - Player stats calculation\n\n- Statistics viewer \\(view_stats.py\\)\n  - View all players sorted by win rate\n  - Match history display\n  - Individual player lookup\n\n- OCR testing tools\n  - process_screenshots.py: Interactive screenshot analysis\n  - test_ocr_on_roster.py: Specific GW2 roster OCR testing\n  - Region extraction and preprocessing experiments\n\n- Getting Started guide with quick start commands\n\nSuccessfully tested with real GW2 match:\n- 12 players tracked in database\n- Win/loss records calculated\n- Match history stored\n\nNext: Fine-tune OCR preprocessing for GW2 fonts\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nAdd live screenshot capture with hotkeys\n\nImplemented F8/F9 hotkey system for real-time match capture:\n\n- live_capture.py: Background listener for F8 \\(match start\\) and F9 \\(match end\\)\n- Automatic timestamped screenshot saving\n- Match duration tracking\n- User-friendly console feedback\n\nWorkflow:\n1. Run live_capture.py in background\n2. Press F8 when match starts \\(scoreboard visible\\)\n3. Press F9 when match ends\n4. Use manual_match_entry.py to log the match\n5. View stats with view_stats.py\n\nReady for live testing during actual gameplay!\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(timeout 5 venv/Scripts/python.exe:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

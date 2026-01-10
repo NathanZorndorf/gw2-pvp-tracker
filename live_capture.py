@@ -120,10 +120,24 @@ class LiveCapture:
     def run(self):
         """Start listening for hotkeys."""
         try:
-            # Register hotkeys
-            keyboard.add_hotkey('f8', self.capture_match_start)
-            keyboard.add_hotkey('f9', self.capture_match_end)
-            keyboard.add_hotkey('esc', self.exit_program)
+            # Test if we have permission to use global hotkeys
+            print("\nTesting hotkey permissions...")
+
+            try:
+                keyboard.add_hotkey('f8', self.capture_match_start)
+                keyboard.add_hotkey('f9', self.capture_match_end)
+                keyboard.add_hotkey('esc', self.exit_program)
+                print("Hotkeys registered successfully!\n")
+            except Exception as e:
+                print("\nERROR: Could not register hotkeys!")
+                print("This usually means the program needs Administrator privileges.\n")
+                print("Solution:")
+                print("  1. Close this window")
+                print("  2. Right-click on your terminal (Command Prompt or PowerShell)")
+                print("  3. Select 'Run as administrator'")
+                print("  4. Navigate back to this folder")
+                print("  5. Run: python live_capture.py\n")
+                raise
 
             # Keep running until ESC is pressed
             while self.running:
