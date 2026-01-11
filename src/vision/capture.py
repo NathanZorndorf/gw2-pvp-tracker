@@ -116,8 +116,11 @@ class ScreenCapture:
         filename = f"{prefix}_{timestamp}{suffix}.png"
         filepath = self.screenshots_dir / filename
 
+        # Convert BGR to RGB for correct color representation
+        image_rgb = image[:, :, ::-1]  # Reverse channels: BGR -> RGB
+
         # Convert RGB to PIL Image and save with max quality
-        pil_image = Image.fromarray(image)
+        pil_image = Image.fromarray(image_rgb)
         # PNG compress_level=0 means no compression (fastest, max quality)
         # For OCR we want pixel-perfect capture
         pil_image.save(filepath, format='PNG', compress_level=0)
