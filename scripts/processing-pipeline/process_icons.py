@@ -64,8 +64,8 @@ def target_icon_pre_processing_pipeline(img: np.ndarray) -> None:
     img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
     # 2. Resize 
-    # img = cv2.resize(img, REFERENCE_ICON_SIZE, interpolation=cv2.INTER_AREA)
-    # img = letterbox_image(img, REFERENCE_ICON_SIZE)
+    img = cv2.resize(img, REFERENCE_ICON_SIZE, interpolation=cv2.INTER_AREA)
+    img = letterbox_image(img, REFERENCE_ICON_SIZE)
 
     # 3. Enhance Contrast (CLAHE is better than global equalization)
     clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(2,2))
@@ -87,7 +87,9 @@ paths = [os.path.join("data/target-icons", path) for path in paths if path.endsw
 # img = load_image(path)
 # img = target_icon_pre_processing_pipeline(img)
 # show_image(img, "Reference Icon")
-    
+# exit()
+
+
 for path in paths:
     img = load_image(path)
     img = target_icon_pre_processing_pipeline(img)
@@ -107,7 +109,7 @@ paths = [os.path.join("data/reference-icons/icons-white", path) for path in path
 # edges = cv2.Canny(img, 50, 150)
 # img = cv2.cvtColor(edges, cv2.COLOR_GRAY2RGB)
 # show_image(img, "Reference Icon")
-    
+# exit()
 
 for path in paths:
     img = load_image(path)
@@ -117,3 +119,135 @@ for path in paths:
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     cv2.imwrite(output_path, img)
     print(f"Loaded image: {path}, shape: {img.shape if img is not None else 'None'}")
+
+# Template Matching for Icon Comparison
+print("\nPerforming template matching...")
+
+# Load processed images
+target_images = {}
+for filename in os.listdir("scripts/processing-pipeline/processed-target-icons"):
+    if filename.endswith('.png'):
+        path = os.path.join("scripts/processing-pipeline/processed-target-icons", filename)
+        target_images[filename] = cv2.imread(path)
+
+ref_images = {}
+for filename in os.listdir("scripts/processing-pipeline/processed-reference-icons"):
+    if filename.endswith('.png'):
+        path = os.path.join("scripts/processing-pipeline/processed-reference-icons", filename)
+        ref_images[filename] = cv2.imread(path)
+
+results = []
+
+print(f"Matching {len(target_images)} targets against {len(ref_images)} references...")
+
+for target_name, target_img in target_images.items():
+    best_match = None
+    highest_score = -1
+    
+    for ref_name, ref_img in ref_images.items():
+        # Ensure both images are grayscale for matching
+        if len(target_img.shape) == 3:
+            target_gray = cv2.cvtColor(target_img, cv2.COLOR_BGR2GRAY)
+        else:
+            target_gray = target_img
+            
+        if len(ref_img.shape) == 3:
+            ref_gray = cv2.cvtColor(ref_img, cv2.COLOR_BGR2GRAY)
+        else:
+            ref_gray = ref_img
+        
+        # Perform template matching
+        result = cv2.matchTemplate(target_gray, ref_gray, cv2.TM_CCOEFF_NORMED)
+        _, max_val, _, _ = cv2.minMaxLoc(result)
+        
+        if max_val > highest_score:
+            highest_score = max_val
+            best_match = ref_name
+    
+    results.append({
+        'target': target_name,
+        'best_match': best_match,
+        'similarity': highest_score
+    })
+    print(f"{target_name} -> {best_match} (score: {highest_score:.4f})")
+
+# Save results to CSV
+import csv
+with open('scripts/processing-pipeline/template_matching_results.csv', 'w', newline='') as csvfile:
+    fieldnames = ['target', 'best_match', 'similarity']
+    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(results)
+
+print("\nTemplate matching complete! Results saved to template_matching_results.csv")
+
+# Evaluate accuracy using ground truth mappings
+print("\nEvaluating accuracy...")
+
+# Load ground truth mappings
+ground_truth = {}
+mappings_file = "data/target-icons/mappings.csv"
+if os.path.exists(mappings_file):
+    import csv
+    with open(mappings_file, 'r') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            ground_truth[row['file_name']] = row['mapping_icon_name']
+
+    # Load matching results
+    results_file = "scripts/processing-pipeline/template_matching_results.csv"
+    if os.path.exists(results_file):
+        predictions = {}
+        with open(results_file, 'r') as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                # Extract profession from best_match filename (remove .png)
+                predicted_profession = row['best_match'].replace('.png', '') if row['best_match'] else None
+                predictions[row['target']] = {
+                    'predicted': predicted_profession,
+                    'similarity': float(row['similarity'])
+                }
+
+        # Calculate accuracy
+        correct = 0
+        total = 0
+        evaluation_results = []
+
+        for target_file, pred_data in predictions.items():
+            if target_file in ground_truth:
+                total += 1
+                actual = ground_truth[target_file]
+                predicted = pred_data['predicted']
+                similarity = pred_data['similarity']
+                
+                is_correct = actual == predicted
+                if is_correct:
+                    correct += 1
+                
+                evaluation_results.append({
+                    'target': target_file,
+                    'actual': actual,
+                    'predicted': predicted,
+                    'similarity': similarity,
+                    'correct': is_correct
+                })
+                
+                status = "✓" if is_correct else "✗"
+                print(f"{status} {target_file}: {actual} -> {predicted} (sim: {similarity:.4f})")
+
+        accuracy = correct / total * 100 if total > 0 else 0
+        print(f"\nAccuracy: {correct}/{total} = {accuracy:.2f}%")
+
+        # Save detailed evaluation results
+        eval_file = "scripts/processing-pipeline/evaluation_results.csv"
+        with open(eval_file, 'w', newline='') as csvfile:
+            fieldnames = ['target', 'actual', 'predicted', 'similarity', 'correct']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(evaluation_results)
+        
+        print(f"Detailed results saved to {eval_file}")
+    else:
+        print(f"Results file not found: {results_file}")
+else:
+    print(f"Mappings file not found: {mappings_file}")

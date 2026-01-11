@@ -61,7 +61,7 @@ if __name__ == "__main__":
     # Define paths
     csv_path = os.path.join('data', 'ranked-icon-bounding-boxes.csv')
     samples_dir = os.path.join('data', 'samples')
-    output_dir = os.path.join('data', 'extracted-icons')
+    output_dir = os.path.join('data', 'target-icons')
 
     # Run the extraction
     extract_icons_from_csv(csv_path, samples_dir, output_dir)
