@@ -1,0 +1,33 @@
+# Ground truth data for OCR evaluation
+# Manually verified from sample screenshots
+# User player: Phantom Tithe (Red team)
+
+user_player: "Phantom Tithe"
+
+samples:
+  - filename: "match_end_20260110_175551_full.png"
+    description: "End of match scoreboard"
+    scores:
+      red: 500
+      blue: 450
+    winner: "red"
+    user_result: "win"
+
+  - filename: "match_start_20260110_173957_full.png"
+    description: "Start of match scoreboard"
+    scores:
+      red: 0
+      blue: 0
+    red_team:
+      - "Shattered Existence"
+      - "Nefras"
+      - "Keèy"
+      - "Twoandahalfmen"
+      - "Phantom Tithe"
+    blue_team:
+      - "Lutfin"
+      - "Raghuell"
+      - "Dirk Nim"
+      - "Vari More"
+      - "Il Il Cosmic Il Il"
+    user_team: "red"

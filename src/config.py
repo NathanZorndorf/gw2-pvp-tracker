@@ -25,7 +25,7 @@ class Config:
                 logger.warning(f"Config file not found: {self.config_path}")
                 return self._default_config()
 
-            with open(self.config_path, 'r') as f:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
                 config = yaml.safe_load(f)
                 logger.info(f"Loaded config from {self.config_path}")
                 return config

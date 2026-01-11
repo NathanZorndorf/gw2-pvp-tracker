@@ -20,7 +20,7 @@ ocr:
   name_psm: 7  # Single line mode (tesseract only)
   score_psm: 7
   score_whitelist: "0123456789"
-  name_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz. "
+  name_whitelist: "AÀÁÂÃÄÅÆBCÇDÐEÈÉÊËFGHIÌÍÎÏJKLMNÑOÒÓÔÕÖØŒPQRSẞTUÙÚÛÜVWXYÝŸZaàáâãäåæbcçdðeèéêëfghiìíîïjklmnñoòóôõöøœpqrsßtuùúûüvwxyýÿzZABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzÁáÉéÍíÓóÚúÀàÈèÌìÒòÙùÄäËëÏïÖöÜüÇçÑñæ. "
   use_clahe: true  # CLAHE contrast enhancement (recommended for EasyOCR)
   resize_factor: 2.0  # Scale factor for OCR preprocessing
 
@@ -58,45 +58,88 @@ ui:
   show_ascii_art: true
   color_enabled: true
 
+  # Win Rate Overlay Settings
+  overlay:
+    enabled: true           # Show overlay on F8
+    style: "popup"          # "popup" (centered dialog)
+    width: 420              # Window width in pixels
+    auto_close_on_f9: true  # Close overlay when match ends
+    show_on_f8: true        # Show overlay when F8 is pressed
+
 # Roster Region Coordinates (Based on 3840x2160 4K full screen images)
-# Coordinates calibrated from full-screen-start-bounding-boxes.csv
 # NOTE: These are for 4K resolution. For 1080p, divide all values by 2.
+# Ranked and Unranked Arena have different scoreboard layouts - auto-detected at runtime.
 roster_regions:
-  # Scoreboard panel boundaries
-  scoreboard:
-    x_start: 1200     # Left edge of scoreboard panel
-    x_end: 2700       # Right edge of scoreboard panel
-    y_start: 580      # Top edge of scoreboard
-    y_end: 980        # Bottom edge of player list
+  # Default arena type to use if auto-detection fails
+  default_arena: "unranked"
 
-  # Red team (left side) - from bounding box CSV
-  red_team_names:
-    x_start: 1222     # Start of red team names
-    x_end: 1920       # End of red team names (x + width)
-    y_start: 670      # First player row
-    row_height: 62    # Height per player row (average)
-    num_players: 5
+  # Unranked Arena bounding boxes (from unranked-gameplay-1 samples)
+  unranked:
+    red_team_names:
+      x_start: 1194
+      x_end: 1807       # 1196 + 611 from CSV
+      y_start: 707
+      row_height: 60
+      num_players: 5
 
-  # Blue team (right side) - from bounding box CSV
-  blue_team_names:
-    x_start: 1985     # Start of blue team names
-    x_end: 2694       # End of blue team names (x + width)
-    y_start: 672      # First player row
-    row_height: 60    # Height per player row (average)
-    num_players: 5
+    blue_team_names:
+      x_start: 2034
+      x_end: 2660       # 2039 + 621 from CSV
+      y_start: 711
+      row_height: 60
+      num_players: 5
 
-  # Score display (top of scoreboard) - calibrated for EasyOCR
-  red_score_box:
-    x: 1740           # X position of red score
-    y: 590            # Y position
-    width: 150        # Width of score area
-    height: 75        # Height of score area
+    red_score_box:
+      x: 1944
+      y: 588
+      width: 248
+      height: 96
 
-  blue_score_box:
-    x: 1950           # X position of blue score
-    y: 590            # Y position
-    width: 150        # Width of score area
-    height: 75        # Height of score area
+    blue_score_box:
+      x: 1678
+      y: 588
+      width: 246
+      height: 98
+
+    arena_type_box:
+      x: 1239
+      y: 440
+      width: 217
+      height: 76
+
+  # Ranked Arena bounding boxes (from ranked-gameplay-1 samples)
+  ranked:
+    red_team_names:
+      x_start: 1192
+      x_end: 1799       # ~1192 + 607 from CSV
+      y_start: 682      # ~25 pixels higher than unranked
+      row_height: 58    # slightly tighter spacing
+      num_players: 5
+
+    blue_team_names:
+      x_start: 2043
+      x_end: 2660       # 2043 + 615 from CSV
+      y_start: 678      # ~33 pixels higher than unranked
+      row_height: 60
+      num_players: 5
+
+    red_score_box:
+      x: 1760
+      y: 555
+      width: 152
+      height: 111
+
+    blue_score_box:
+      x: 1944
+      y: 555
+      width: 144
+      height: 111
+
+    arena_type_box:
+      x: 1235
+      y: 412
+      width: 197
+      height: 70
 
 # Debug Settings
 debug:

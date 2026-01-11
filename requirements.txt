@@ -22,3 +22,8 @@ PyYAML>=6.0.0
 
 # Development
 pytest>=7.4.0
+
+# GUI and plotting
+PySide6>=6.6.0
+matplotlib>=3.8.0
+pandas>=2.2.0

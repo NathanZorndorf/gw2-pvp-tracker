@@ -42,10 +42,53 @@ class MatchProcessor:
             resize_factor=config.get('ocr.resize_factor', 2.0)
         )
 
+        # Arena type detected from current match (set during processing)
+        self._current_arena_type: Optional[str] = None
+
         # Create debug directory if enabled
         if self.debug_enabled:
             self.debug_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"Debug mode enabled. Saving regions to: {self.debug_dir}")
+
+    def _get_arena_config(self, arena_type: Optional[str] = None) -> dict:
+        """
+        Get the region config for the specified or detected arena type.
+
+        Args:
+            arena_type: 'ranked', 'unranked', or None to use detected type
+
+        Returns:
+            Region config dict for the arena type
+        """
+        regions_config = self.config.get('roster_regions')
+
+        # Use provided arena_type, or fall back to detected, or default
+        arena = arena_type or self._current_arena_type
+        if arena is None:
+            arena = regions_config.get('default_arena', 'unranked')
+
+        # Check if using new format with arena-specific regions
+        if arena in regions_config:
+            return regions_config[arena]
+        else:
+            # Legacy format - return the whole config
+            return regions_config
+
+    def detect_arena_type(self, image: np.ndarray) -> str:
+        """
+        Detect and store the arena type from a screenshot.
+
+        Args:
+            image: Screenshot image
+
+        Returns:
+            Detected arena type ('ranked' or 'unranked')
+        """
+        regions_config = self.config.get('roster_regions')
+        arena_type, confidence = self.ocr.detect_arena_type(image, regions_config)
+        self._current_arena_type = arena_type
+        logger.info(f"Arena type set to: {arena_type} (confidence: {confidence:.2f})")
+        return arena_type
 
     def _save_debug_region(
         self,
@@ -73,7 +116,7 @@ class MatchProcessor:
         logger.debug(f"Saved debug region: {filepath}")
         return str(filepath)
 
-    def detect_user_from_image(self, image_path: str) -> Tuple[Optional[str], Optional[str], float]:
+    def detect_user_from_image(self, image_path: Optional[str] = None, image: Optional[np.ndarray] = None) -> Tuple[Optional[str], Optional[str], float]:
         """
         Detect user character from screenshot (for F8/F9).
 
@@ -84,15 +127,25 @@ class MatchProcessor:
             Tuple of (character_name, team, confidence_score)
         """
         try:
-            # Load image
-            image = cv2.imread(image_path)
+            # Load image if not provided
             if image is None:
-                logger.error(f"Failed to load image: {image_path}")
-                return None, None, 0.0
+                if not image_path:
+                    logger.error("No image or image_path provided to detect_user_from_image")
+                    return None, None, 0.0
+                image = cv2.imread(image_path)
+                if image is None:
+                    logger.error(f"Failed to load image: {image_path}")
+                    return None, None, 0.0
 
-            # Extract player name regions
+            # Detect arena type from this screenshot only if not already detected
+            if self._current_arena_type is None:
+                self.detect_arena_type(image)
+
+            # Extract player name regions using detected arena type
             regions_config = self.config.get('roster_regions')
-            name_regions = self.ocr.extract_player_name_regions(image, regions_config)
+            name_regions = self.ocr.extract_player_name_regions(
+                image, regions_config, arena_type=self._current_arena_type
+            )
 
             # Detect bold text
             bold_index, confidence = self.ocr.detect_bold_text(name_regions)
@@ -142,16 +195,23 @@ class MatchProcessor:
             # Generate timestamp for debug images
             self._debug_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-            # Load end screenshot (contains final scores)
+            # Load screenshots
             end_img = cv2.imread(end_path)
             if end_img is None:
                 raise ValueError(f"Failed to load end screenshot: {end_path}")
+
+            start_img = cv2.imread(start_path) if start_path else None
+
+            # Detect arena type if not already detected (from F8)
+            # Prefer start screenshot for detection since it has cleaner player names
+            if self._current_arena_type is None:
+                detection_img = start_img if start_img is not None else end_img
+                self.detect_arena_type(detection_img)
 
             # Extract scores (from end screenshot)
             red_score, blue_score = self._extract_scores(end_img, "end")
 
             # Extract all player names (from start screenshot for better accuracy)
-            start_img = cv2.imread(start_path) if start_path else None
             if start_img is not None:
                 players_data = self._extract_all_players(start_img, "start")
             else:
@@ -180,7 +240,8 @@ class MatchProcessor:
                 'players': players_data,
                 'validation_errors': errors,
                 'is_valid': is_valid,
-                'user_confidence': confidence
+                'user_confidence': confidence,
+                'arena_type': self._current_arena_type
             }
 
         except Exception as e:
@@ -202,11 +263,12 @@ class MatchProcessor:
             Tuple of (red_score, blue_score)
         """
         try:
-            regions_config = self.config.get('roster_regions')
+            # Get arena-specific config
+            arena_config = self._get_arena_config()
 
             # Extract score regions
-            red_box = regions_config['red_score_box']
-            blue_box = regions_config['blue_score_box']
+            red_box = arena_config['red_score_box']
+            blue_box = arena_config['blue_score_box']
 
             # Extract the actual image regions
             red_region = image[
@@ -227,7 +289,7 @@ class MatchProcessor:
             red_score = self.ocr.extract_score(red_region)
             blue_score = self.ocr.extract_score(blue_region)
 
-            logger.info(f"Extracted scores: Red={red_score}, Blue={blue_score}")
+            logger.info(f"Extracted scores: Red={red_score}, Blue={blue_score} (arena: {self._current_arena_type})")
             return red_score if red_score is not None else 0, blue_score if blue_score is not None else 0
 
         except Exception as e:
@@ -249,14 +311,25 @@ class MatchProcessor:
 
         try:
             regions_config = self.config.get('roster_regions')
-            name_regions = self.ocr.extract_player_name_regions(image, regions_config)
+            name_regions = self.ocr.extract_player_name_regions(
+                image, regions_config, arena_type=self._current_arena_type
+            )
 
             # Get known names for fuzzy matching
             known_names = self.db.get_all_player_names()
             fuzzy_threshold = self.config.get('fuzzy.name_match_threshold', 80)
 
-            # Extract each player's name
-            for idx, (region, team) in enumerate(name_regions):
+            # Preprocess each name region once (reduce repeated expensive ops)
+            preprocessed_regions = []
+            for region, team in name_regions:
+                try:
+                    processed = self.ocr._preprocess_for_engine(region)
+                except Exception:
+                    processed = region
+                preprocessed_regions.append((processed, team))
+
+            # Extract each player's name from preprocessed crops
+            for idx, (region, team) in enumerate(preprocessed_regions):
                 # Save debug image for this player region
                 if self.debug_enabled and hasattr(self, '_debug_timestamp'):
                     player_num = idx + 1 if team == 'red' else idx - 4  # 1-5 for each team
@@ -266,11 +339,24 @@ class MatchProcessor:
                         self._debug_timestamp
                     )
 
-                name = self.ocr.extract_player_name(
+                # Run OCR on the already-preprocessed crop (skip internal preprocessing)
+                raw_text = self.ocr.extract_text(
                     region,
-                    known_names=known_names,
-                    fuzzy_threshold=fuzzy_threshold
+                    psm=7,
+                    whitelist=self.ocr.name_whitelist,
+                    preprocess=False
                 )
+
+                # If fuzzy matching data exists, attempt to correct OCR output
+                name = raw_text
+                if known_names and raw_text:
+                    try:
+                        from thefuzz import process
+                        match, score = process.extractOne(raw_text, known_names)
+                        if score >= fuzzy_threshold:
+                            name = match
+                    except Exception:
+                        pass
 
                 if not name:
                     name = f"Unknown_{idx}"
@@ -282,7 +368,7 @@ class MatchProcessor:
                     'team': team
                 })
 
-            logger.info(f"Extracted {len(players)} players")
+            logger.info(f"Extracted {len(players)} players (arena: {self._current_arena_type})")
             return players
 
         except Exception as e:
@@ -310,7 +396,9 @@ class MatchProcessor:
         """
         try:
             regions_config = self.config.get('roster_regions')
-            name_regions = self.ocr.extract_player_name_regions(image, regions_config)
+            name_regions = self.ocr.extract_player_name_regions(
+                image, regions_config, arena_type=self._current_arena_type
+            )
 
             # Detect bold text
             bold_index, confidence = self.ocr.detect_bold_text(name_regions)
@@ -355,10 +443,10 @@ class MatchProcessor:
         if red_score == 0 and blue_score == 0:
             errors.append("Both scores are zero")
 
-        if red_score < 0 or red_score > 500:
+        if red_score < 0 or red_score > 9999:
             errors.append(f"Invalid red score: {red_score}")
 
-        if blue_score < 0 or blue_score > 500:
+        if blue_score < 0 or blue_score > 9999:
             errors.append(f"Invalid blue score: {blue_score}")
 
         # Check players
@@ -380,7 +468,8 @@ class MatchProcessor:
         self,
         match_data: Dict,
         start_path: str,
-        end_path: str
+        end_path: str,
+        map_name: Optional[str] = None
     ) -> int:
         """
         Log processed match to database with best-effort approach.
@@ -418,7 +507,9 @@ class MatchProcessor:
                 user_char_name=user_char,
                 players=players,
                 screenshot_start_path=start_path,
-                screenshot_end_path=end_path
+                screenshot_end_path=end_path,
+                arena_type=self._current_arena_type,
+                map_name=map_name
             )
 
             logger.info(f"Match #{match_id} logged successfully")

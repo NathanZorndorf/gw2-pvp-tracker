@@ -61,6 +61,8 @@ class Database:
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 red_score INTEGER NOT NULL,
                 blue_score INTEGER NOT NULL,
+                arena_type TEXT,
+                map_name TEXT,
                 winning_team TEXT NOT NULL CHECK(winning_team IN ('red', 'blue')),
                 user_team TEXT NOT NULL CHECK(user_team IN ('red', 'blue')),
                 user_char_name TEXT NOT NULL,
@@ -124,6 +126,28 @@ class Database:
             FROM players
             WHERE total_matches > 0
         """)
+        # Ensure existing databases get the new arena_type column.
+        try:
+            cursor.execute("PRAGMA table_info(matches)")
+            cols = [row[1] for row in cursor.fetchall()]
+            # Add arena_type column if missing
+            if 'arena_type' not in cols:
+                try:
+                    cursor.execute("ALTER TABLE matches ADD COLUMN arena_type TEXT")
+                    logger.info("Added arena_type column to matches table")
+                except sqlite3.OperationalError:
+                    pass
+
+            # Add map_name column if missing
+            if 'map_name' not in cols:
+                try:
+                    cursor.execute("ALTER TABLE matches ADD COLUMN map_name TEXT")
+                    logger.info("Added map_name column to matches table")
+                except sqlite3.OperationalError:
+                    pass
+        except Exception:
+            # If PRAGMA fails for any reason, continue without migration
+            logger.debug("Could not inspect matches table schema for migration")
 
         self.connection.commit()
         logger.info("Database schema initialized")
@@ -248,7 +272,9 @@ class Database:
         user_char_name: str,
         players: List[Dict[str, str]],
         screenshot_start_path: Optional[str] = None,
-        screenshot_end_path: Optional[str] = None
+        screenshot_end_path: Optional[str] = None,
+        arena_type: Optional[str] = None,
+        map_name: Optional[str] = None
     ) -> int:
         """
         Log a complete match to the database.
@@ -273,11 +299,11 @@ class Database:
         # Insert match
         cursor.execute("""
             INSERT INTO matches (
-                red_score, blue_score, winning_team, user_team, user_char_name,
+                red_score, blue_score, arena_type, map_name, winning_team, user_team, user_char_name,
                 screenshot_start_path, screenshot_end_path
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            red_score, blue_score, winning_team, user_team, user_char_name,
+            red_score, blue_score, arena_type, map_name, winning_team, user_team, user_char_name,
             screenshot_start_path, screenshot_end_path
         ))
 
@@ -307,8 +333,124 @@ class Database:
             )
 
         self.connection.commit()
-        logger.info(f"Logged match {match_id}: {blue_score}-{red_score}")
+        logger.info(f"Logged match {match_id}: {blue_score}-{red_score} arena_type={arena_type}")
         return match_id
+
+    def delete_match(self, match_id: int) -> bool:
+        """
+        Delete a match and rollback its effects on player statistics.
+
+        Returns True if a match was deleted, False if not found.
+        """
+        cursor = self.connection.cursor()
+
+        # Fetch match and participants
+        cursor.execute("SELECT winning_team FROM matches WHERE match_id = ?", (match_id,))
+        row = cursor.fetchone()
+        if not row:
+            return False
+
+        winning_team = row[0]
+
+        cursor.execute("SELECT char_name, team_color FROM match_participants WHERE match_id = ?", (match_id,))
+        participants = cursor.fetchall()
+
+        # Adjust player stats for each participant
+        for p in participants:
+            char = p[0]
+            team = p[1]
+            # If player was on winning team, decrement wins, otherwise decrement losses
+            if team == winning_team:
+                cursor.execute("""
+                    UPDATE players
+                    SET global_wins = CASE WHEN global_wins > 0 THEN global_wins - 1 ELSE 0 END,
+                        total_matches = CASE WHEN total_matches > 0 THEN total_matches - 1 ELSE 0 END
+                    WHERE char_name = ?
+                """, (char,))
+            else:
+                cursor.execute("""
+                    UPDATE players
+                    SET global_losses = CASE WHEN global_losses > 0 THEN global_losses - 1 ELSE 0 END,
+                        total_matches = CASE WHEN total_matches > 0 THEN total_matches - 1 ELSE 0 END
+                    WHERE char_name = ?
+                """, (char,))
+
+        # Delete participants and match
+        cursor.execute("DELETE FROM match_participants WHERE match_id = ?", (match_id,))
+        cursor.execute("DELETE FROM matches WHERE match_id = ?", (match_id,))
+
+        # Recompute most played profession for affected players
+        affected = {p[0] for p in participants}
+        for name in affected:
+            self._update_most_played_profession(name)
+
+        self.connection.commit()
+        logger.info(f"Deleted match {match_id} and adjusted {len(affected)} players")
+        return True
+
+    def update_match_scores(self, match_id: int, red_score: int, blue_score: int) -> bool:
+        """
+        Update scores for a match and adjust player win/loss counts if the winner changed.
+
+        Returns True if updated, False if match not found.
+        """
+        cursor = self.connection.cursor()
+
+        cursor.execute("SELECT red_score, blue_score, winning_team FROM matches WHERE match_id = ?", (match_id,))
+        row = cursor.fetchone()
+        if not row:
+            return False
+
+        prev_red, prev_blue, prev_winner = row[0], row[1], row[2]
+        new_winner = 'blue' if blue_score > red_score else 'red'
+
+        # Update match record
+        cursor.execute("""
+            UPDATE matches
+            SET red_score = ?, blue_score = ?, winning_team = ?
+            WHERE match_id = ?
+        """, (red_score, blue_score, new_winner, match_id))
+
+        # If winner didn't change, nothing more to do
+        if new_winner == prev_winner:
+            self.connection.commit()
+            logger.info(f"Updated scores for match {match_id} (winner unchanged)")
+            return True
+
+        # Winner changed: adjust player stats
+        cursor.execute("SELECT char_name, team_color FROM match_participants WHERE match_id = ?", (match_id,))
+        participants = cursor.fetchall()
+
+        for p in participants:
+            char, team = p[0], p[1]
+            prev_won = (team == prev_winner)
+            new_won = (team == new_winner)
+
+            if prev_won and not new_won:
+                # Was a win, now a loss
+                cursor.execute("""
+                    UPDATE players
+                    SET global_wins = CASE WHEN global_wins > 0 THEN global_wins - 1 ELSE 0 END,
+                        global_losses = global_losses + 1
+                    WHERE char_name = ?
+                """, (char,))
+            elif not prev_won and new_won:
+                # Was a loss, now a win
+                cursor.execute("""
+                    UPDATE players
+                    SET global_losses = CASE WHEN global_losses > 0 THEN global_losses - 1 ELSE 0 END,
+                        global_wins = global_wins + 1
+                    WHERE char_name = ?
+                """, (char,))
+
+        # Recompute professions
+        affected = {p[0] for p in participants}
+        for name in affected:
+            self._update_most_played_profession(name)
+
+        self.connection.commit()
+        logger.info(f"Updated scores for match {match_id} and adjusted winner from {prev_winner} to {new_winner}")
+        return True
 
     def get_player_winrate(self, char_name: str) -> Tuple[float, int]:
         """
@@ -338,6 +480,7 @@ class Database:
                 timestamp,
                 red_score,
                 blue_score,
+                arena_type,
                 winning_team,
                 user_team,
                 user_char_name

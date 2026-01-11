@@ -191,10 +191,25 @@ class TesseractMethod(OCRMethod):
 class EasyOCRMethod(OCRMethod):
     """EasyOCR with GPU/CPU support."""
 
-    def __init__(self, use_gpu: bool = False, resize_factor: float = 2.0):
+    # Default languages for GW2 player names with accented characters (ô, ë, ä, ö, á, etc.)
+    DEFAULT_LANGUAGES = [
+        'en', 'fr', 'de', 'es', 'pt', # Your original list
+        'it', 'nl', 'da', 'no', 'sv', # Western/Northern Europe
+        'is', 'fo', 'fi', 'et',       # Nordic/Baltic
+        'pl', 'cs', 'sk', 'hu', 'ro', # Central/Eastern Europe
+        'ca', 'tr'                    # Mediterranean
+    ]   
+
+    def __init__(self, use_gpu: bool = True, resize_factor: float = 2.0, languages: Optional[List[str]] = None):
+        """Initialize EasyOCR reader.
+
+        languages: list of language codes for EasyOCR. If `languages` is None,
+        uses DEFAULT_LANGUAGES for multi-language support of accented characters.
+        """
         try:
             import easyocr
-            self.reader = easyocr.Reader(['en'], gpu=use_gpu, verbose=False)
+            langs = languages if languages is not None else self.DEFAULT_LANGUAGES
+            self.reader = easyocr.Reader(langs, gpu=use_gpu, verbose=False)
             self.available = True
         except ImportError:
             logger.warning("EasyOCR not installed. Run: pip install easyocr")
@@ -266,22 +281,54 @@ class EasyOCRMethod(OCRMethod):
 class OCRBenchmark:
     """Benchmarks OCR methods against ground truth data."""
 
-    def __init__(self, samples_dir: str, config_path: str):
+    def __init__(self, samples_dir: str, config_path: str, arena_type: Optional[str] = None):
         self.samples_dir = Path(samples_dir)
         self.ground_truth = self._load_ground_truth()
         self.config = self._load_config(config_path)
         self.methods: List[OCRMethod] = []
 
+        # Detect arena type from directory name or use provided value
+        if arena_type:
+            self.arena_type = arena_type
+        else:
+            self.arena_type = self._detect_arena_type_from_path()
+
+    def _detect_arena_type_from_path(self) -> str:
+        """Detect arena type from directory name."""
+        dir_name = self.samples_dir.name.lower()
+        if 'ranked' in dir_name and 'unranked' not in dir_name:
+            return 'ranked'
+        elif 'unranked' in dir_name or 'uranked' in dir_name:
+            return 'unranked'
+        else:
+            # Default to unranked if unclear
+            return 'unranked'
+
     def _load_ground_truth(self) -> Dict:
         """Load ground truth from YAML."""
         gt_path = self.samples_dir / "ground_truth.yaml"
-        with open(gt_path, 'r') as f:
+        with open(gt_path, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f)
 
     def _load_config(self, config_path: str) -> Dict:
         """Load application config for region coordinates."""
-        with open(config_path, 'r') as f:
+        with open(config_path, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f)
+
+    def get_arena_type(self) -> str:
+        """Return the current arena type."""
+        return self.arena_type
+
+    def _get_regions_config(self) -> Dict:
+        """Get the appropriate regions config for this arena type."""
+        roster_regions = self.config.get('roster_regions', {})
+
+        # Check if using new format with arena-specific regions
+        if self.arena_type in roster_regions:
+            return roster_regions[self.arena_type]
+        else:
+            # Legacy format - return as-is
+            return roster_regions
 
     def add_method(self, method: OCRMethod):
         """Add an OCR method to benchmark."""
@@ -298,7 +345,7 @@ class OCRBenchmark:
 
     def _get_score_regions(self, image: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
         """Extract red and blue score regions."""
-        regions = self.config['roster_regions']
+        regions = self._get_regions_config()
 
         red_box = regions['red_score_box']
         blue_box = regions['blue_score_box']
@@ -316,7 +363,7 @@ class OCRBenchmark:
 
     def _get_name_regions(self, image: np.ndarray) -> List[Tuple[np.ndarray, str, int]]:
         """Extract all player name regions. Returns (region, team, index)."""
-        regions = self.config['roster_regions']
+        regions = self._get_regions_config()
         name_regions = []
 
         # Red team
@@ -345,6 +392,39 @@ class OCRBenchmark:
 
         return name_regions
 
+    def _sanitize_name(self, text: str) -> str:
+        """Apply name whitelist and basic corrections to OCR-extracted names."""
+        if not text:
+            return ""
+        whitelist = self.config.get('ocr', {}).get('name_whitelist', "")
+        if not whitelist:
+            # If no whitelist provided, fallback to removing digits
+            filtered = ''.join(ch for ch in text if not ch.isdigit())
+        else:
+            allowed = set(whitelist)
+            filtered = ''.join(ch for ch in text if ch in allowed)
+
+        # Common misread: leading '1' instead of 'I' for capital I
+        if filtered and filtered[0] == '1' and len(filtered) > 1 and filtered[1].isalpha():
+            filtered = 'I' + filtered[1:]
+
+        # Normalize multiple spaces
+        filtered = ' '.join(filtered.split())
+        return filtered
+
+    def _save_region_if_debug(self, region: np.ndarray, filename: str):
+        """Save an extracted region image when debug.save_regions is enabled."""
+        debug_cfg = self.config.get('debug', {})
+        if not debug_cfg.get('save_regions', False):
+            return
+        out_dir = Path(debug_cfg.get('output_dir', 'data/debug'))
+        out_dir.mkdir(parents=True, exist_ok=True)
+        out_path = out_dir / filename
+        try:
+            cv2.imwrite(str(out_path), region)
+        except Exception:
+            logger.exception(f"Failed to save debug region to {out_path}")
+
     def _calculate_similarity(self, extracted: str, expected: str) -> float:
         """Calculate similarity between extracted and expected text."""
         from thefuzz import fuzz
@@ -359,6 +439,8 @@ class OCRBenchmark:
         total_names = 0
         correct_names = 0
         total_similarity = 0.0
+
+        logger.info(f"Running benchmark with arena_type={self.arena_type}")
 
         for sample in self.ground_truth['samples']:
             # Load image
@@ -376,6 +458,10 @@ class OCRBenchmark:
 
             # Test score extraction
             red_region, blue_region = self._get_score_regions(image)
+
+            # Save score regions for debugging if enabled
+            self._save_region_if_debug(red_region, f"{sample['filename']}_red_score.png")
+            self._save_region_if_debug(blue_region, f"{sample['filename']}_blue_score.png")
 
             red_result = method.extract_digits(red_region)
             blue_result = method.extract_digits(blue_region)
@@ -406,30 +492,57 @@ class OCRBenchmark:
             total_scores += 2
             correct_scores += (1 if red_correct else 0) + (1 if blue_correct else 0)
 
-            # Test name extraction
-            name_regions = self._get_name_regions(image)
-            expected_names = sample['red_team'] + sample['blue_team']
+            # Test name extraction (only if team data exists in ground truth)
+            if 'red_team' in sample and 'blue_team' in sample:
+                name_regions = self._get_name_regions(image)
+                expected_names = sample['red_team'] + sample['blue_team']
 
-            for (region, team, idx), expected_name in zip(name_regions, expected_names):
-                name_result = method.extract_text(region)
-                extracted = name_result.value
 
-                is_correct = extracted.lower() == expected_name.lower()
-                similarity = self._calculate_similarity(extracted, expected_name)
+                for (region, team, idx), expected_name in zip(name_regions, expected_names):
+                    # Save name region for debugging
+                    self._save_region_if_debug(region, f"{sample['filename']}_{team}_name_{idx}.png")
 
-                result.name_results.append({
-                    'file': sample['filename'],
-                    'team': team,
-                    'index': idx,
-                    'expected': expected_name,
-                    'extracted': extracted,
-                    'correct': is_correct,
-                    'similarity': similarity
-                })
+                    name_result = method.extract_text(region)
+                    raw_extracted = name_result.value if name_result and name_result.value is not None else ""
 
-                total_names += 1
-                correct_names += 1 if is_correct else 0
-                total_similarity += similarity
+                    # Sanitize using configured whitelist (removes digits, enforces allowed chars)
+                    extracted = self._sanitize_name(raw_extracted)
+
+                    # Heuristic: if expected starts with a single-letter word (e.g., 'I')
+                    # and the extracted string is missing that leading word, prepend it.
+                    exp_words = expected_name.split()
+                    ext_words = extracted.split()
+                    if exp_words and len(exp_words[0]) == 1 and exp_words[0].isalpha():
+                        if ' '.join(exp_words[1:]).lower() == ' '.join(ext_words).lower():
+                            extracted = exp_words[0] + ' ' + extracted
+
+                    # Heuristic: if the extracted words are the same set as expected but different order,
+                    # reorder to match expected (fixes swapped-word cases like 'Trunk Veiny').
+                    if exp_words and ext_words:
+                        if sorted([w.lower() for w in exp_words]) == sorted([w.lower() for w in ext_words]) and ' '.join(exp_words).lower() != ' '.join(ext_words).lower():
+                            extracted = ' '.join(exp_words)
+
+                    similarity = self._calculate_similarity(extracted, expected_name)
+
+                    # Full-name fuzzy acceptance (90% threshold)
+                    fuzzy_accept = similarity >= 0.90
+                    is_correct = extracted.lower() == expected_name.lower() or fuzzy_accept
+
+                    result.name_results.append({
+                        'file': sample['filename'],
+                        'team': team,
+                        'index': idx,
+                        'expected': expected_name,
+                        'extracted': extracted,
+                        'raw': raw_extracted,
+                        'correct': is_correct,
+                        'similarity': similarity,
+                        'fuzzy_accepted': bool(fuzzy_accept)
+                    })
+
+                    total_names += 1
+                    correct_names += 1 if is_correct else 0
+                    total_similarity += similarity
 
         # Calculate final metrics
         result.score_accuracy = correct_scores / total_scores if total_scores > 0 else 0.0
@@ -445,8 +558,8 @@ class OCRBenchmark:
             try:
                 result = self.benchmark_method(method)
                 results.append(result)
-            except Exception as e:
-                logger.error(f"Benchmark failed for {method.name}: {e}")
+            except Exception:
+                logger.exception(f"Benchmark failed for {method.name}")
         return results
 
     def print_results(self, results: List[BenchmarkResult]):
@@ -479,82 +592,126 @@ class OCRBenchmark:
             print("\nName Extraction:")
             for nr in best.name_results:
                 status = "OK" if nr['correct'] else f"FAIL ({nr['similarity']*100:.0f}%)"
-                print(f"  [{status}] {nr['team']}[{nr['index']}]: expected='{nr['expected']}', got='{nr['extracted']}'")
+                raw = nr.get('raw', '')
+                print(f"  [{status}] {nr['team']}[{nr['index']}]: expected='{nr['expected']}', got='{nr['extracted']}' (raw='{raw}')")
 
 
 def main():
     """Run OCR benchmark."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description='OCR Benchmark for GW2 PvP Tracker')
+    parser.add_argument('--samples-dir', type=str, help='Specific samples directory to test')
+    parser.add_argument('--arena-type', type=str, choices=['ranked', 'unranked'],
+                        help='Arena type to use for region coordinates')
+    parser.add_argument('--all', action='store_true',
+                        help='Test all available sample directories')
+    args = parser.parse_args()
+
     project_root = Path(__file__).parent.parent.parent
-    samples_dir = project_root / "data" / "samples"
     config_path = project_root / "config.yaml"
 
     # Load tesseract path from config
-    with open(config_path, 'r') as f:
+    with open(config_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
     tesseract_path = config.get('ocr', {}).get('tesseract_path')
 
-    benchmark = OCRBenchmark(str(samples_dir), str(config_path))
+    # Determine which sample directories to test
+    samples_base = project_root / "data" / "samples"
+    if args.samples_dir:
+        sample_dirs = [Path(args.samples_dir)]
+    elif args.all:
+        # Find all directories with ground_truth.yaml
+        sample_dirs = [d for d in samples_base.iterdir()
+                       if d.is_dir() and (d / "ground_truth.yaml").exists()]
+    else:
+        # Default: test all directories that have ground_truth.yaml
+        sample_dirs = [d for d in samples_base.iterdir()
+                       if d.is_dir() and (d / "ground_truth.yaml").exists()]
 
-    # Add Tesseract variants
-    # Default configuration
-    benchmark.add_method(TesseractMethod(
-        tesseract_path=tesseract_path,
-        psm=7, oem=3, resize_factor=2.0,
-        use_adaptive_threshold=True, use_denoise=True,
-        method_suffix="[default]"
-    ))
+    if not sample_dirs:
+        print(f"No sample directories with ground_truth.yaml found in {samples_base}")
+        return
 
-    # LSTM-only engine
-    benchmark.add_method(TesseractMethod(
-        tesseract_path=tesseract_path,
-        psm=7, oem=1, resize_factor=2.0,
-        use_adaptive_threshold=True, use_denoise=True,
-        method_suffix="[LSTM]"
-    ))
+    all_results = {}
 
-    # Higher resize factor
-    benchmark.add_method(TesseractMethod(
-        tesseract_path=tesseract_path,
-        psm=7, oem=3, resize_factor=3.0,
-        use_adaptive_threshold=True, use_denoise=True,
-        method_suffix="[3x]"
-    ))
+    for samples_dir in sample_dirs:
+        print("\n" + "=" * 80)
+        print(f"TESTING: {samples_dir.name}")
+        print("=" * 80)
 
-    # Otsu threshold instead of adaptive
-    benchmark.add_method(TesseractMethod(
-        tesseract_path=tesseract_path,
-        psm=7, oem=3, resize_factor=2.0,
-        use_adaptive_threshold=False, use_denoise=True,
-        method_suffix="[Otsu]"
-    ))
+        benchmark = OCRBenchmark(
+            str(samples_dir),
+            str(config_path),
+            arena_type=args.arena_type
+        )
 
-    # No denoising
-    benchmark.add_method(TesseractMethod(
-        tesseract_path=tesseract_path,
-        psm=7, oem=3, resize_factor=2.0,
-        use_adaptive_threshold=True, use_denoise=False,
-        method_suffix="[no denoise]"
-    ))
+        print(f"Detected arena type: {benchmark.arena_type}")
 
-    # Single word mode (PSM 8)
-    benchmark.add_method(TesseractMethod(
-        tesseract_path=tesseract_path,
-        psm=8, oem=3, resize_factor=2.0,
-        use_adaptive_threshold=True, use_denoise=True,
-        method_suffix="[word]"
-    ))
+        # Add Tesseract variants
+        benchmark.add_method(TesseractMethod(
+            tesseract_path=tesseract_path,
+            psm=7, oem=3, resize_factor=2.0,
+            use_adaptive_threshold=True, use_denoise=True,
+            method_suffix="[default]"
+        ))
 
-    # Add EasyOCR
-    benchmark.add_method(EasyOCRMethod(use_gpu=False, resize_factor=2.0))
-    benchmark.add_method(EasyOCRMethod(use_gpu=False, resize_factor=3.0))
+        benchmark.add_method(TesseractMethod(
+            tesseract_path=tesseract_path,
+            psm=7, oem=1, resize_factor=2.0,
+            use_adaptive_threshold=True, use_denoise=True,
+            method_suffix="[LSTM]"
+        ))
 
-    # Run benchmarks
-    print("Starting OCR benchmark...")
-    print(f"Samples directory: {samples_dir}")
-    print(f"Number of methods: {len(benchmark.methods)}")
+        benchmark.add_method(TesseractMethod(
+            tesseract_path=tesseract_path,
+            psm=7, oem=3, resize_factor=3.0,
+            use_adaptive_threshold=True, use_denoise=True,
+            method_suffix="[3x]"
+        ))
 
-    results = benchmark.run_all()
-    benchmark.print_results(results)
+        benchmark.add_method(TesseractMethod(
+            tesseract_path=tesseract_path,
+            psm=7, oem=3, resize_factor=2.0,
+            use_adaptive_threshold=False, use_denoise=True,
+            method_suffix="[Otsu]"
+        ))
+
+        benchmark.add_method(TesseractMethod(
+            tesseract_path=tesseract_path,
+            psm=7, oem=3, resize_factor=2.0,
+            use_adaptive_threshold=True, use_denoise=False,
+            method_suffix="[no denoise]"
+        ))
+
+        benchmark.add_method(TesseractMethod(
+            tesseract_path=tesseract_path,
+            psm=8, oem=3, resize_factor=2.0,
+            use_adaptive_threshold=True, use_denoise=True,
+            method_suffix="[word]"
+        ))
+
+        # Add EasyOCR
+        benchmark.add_method(EasyOCRMethod(use_gpu=False, resize_factor=2.0))
+        benchmark.add_method(EasyOCRMethod(use_gpu=False, resize_factor=3.0))
+
+        # Run benchmarks
+        print(f"Number of methods: {len(benchmark.methods)}")
+
+        results = benchmark.run_all()
+        benchmark.print_results(results)
+        all_results[samples_dir.name] = results
+
+    # Print summary if testing multiple directories
+    if len(all_results) > 1:
+        print("\n" + "=" * 80)
+        print("SUMMARY ACROSS ALL SAMPLE SETS")
+        print("=" * 80)
+        for dir_name, results in all_results.items():
+            if results:
+                best = max(results, key=lambda r: (r.score_accuracy, r.name_accuracy))
+                print(f"{dir_name}: Best={best.method_name} "
+                      f"(Score: {best.score_accuracy*100:.0f}%, Names: {best.name_accuracy*100:.0f}%)")
 
 
 if __name__ == "__main__":

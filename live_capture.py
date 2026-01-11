@@ -9,15 +9,20 @@ The app will save timestamped screenshots to the screenshots/ folder.
 """
 
 import sys
+import os
+import argparse
 from pathlib import Path
 import keyboard
 import time
 from datetime import datetime
+import tkinter as tk
+from typing import Optional, List
 
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from vision.capture import ScreenCapture
 from config import Config
+from ui import WinRateOverlay, PlayerStats
 import logging
 
 # Setup logging
@@ -32,12 +37,45 @@ class LiveCapture:
     """Live screenshot capture with hotkeys."""
 
     def __init__(self):
+        # Allow overriding detected arena/map via CLI arg or env var
+        self.selected_map = None
+        try:
+            parser = argparse.ArgumentParser(add_help=False)
+            parser.add_argument('--map', dest='map', help='Preselected map/arena name')
+            args, _ = parser.parse_known_args()
+            if args.map:
+                self.selected_map = args.map
+        except Exception:
+            pass
+
+        # Environment variable fallback
+        if not self.selected_map:
+            self.selected_map = os.environ.get('LIVE_CAPTURE_MAP')
+
+        if self.selected_map:
+            print(f"Using selected map override: {self.selected_map}")
+
         self.config = Config()
         # Don't initialize ScreenCapture here - create new instance per capture
         self.running = True
         self.match_start_time = None
         self.match_screenshots = {"start": None, "end": None}
         self.detected_user_character = None  # Stores (char_name, team) from F8 detection
+        self.detected_players: List[dict] = []  # Stores player data from F8 for overlay
+
+        # Initialize tkinter for overlay (must be in main thread)
+        self.root = tk.Tk()
+        self.root.withdraw()  # Hide the root window
+
+        # Initialize overlay
+        self.overlay_enabled = self.config.get('ui.overlay.enabled', True)
+        self.overlay: Optional[WinRateOverlay] = None
+        if self.overlay_enabled:
+            self.overlay = WinRateOverlay(self.root)
+            logger.info("Win rate overlay initialized")
+
+        # Pending overlay action (for thread-safe GUI updates)
+        self._pending_overlay_action = None
 
         print("\n" + "=" * 70)
         print("  GW2 PvP Tracker - Live Capture Mode")
@@ -50,6 +88,8 @@ class LiveCapture:
         print("  - Open the scoreboard (default: Tab key) before pressing F8/F9")
         print("  - Screenshots are saved to: screenshots/")
         print("  - Files are named with timestamps for easy identification")
+        if self.overlay_enabled:
+            print("  - Win rate overlay will appear on F8 (close with X or ESC)")
         print("\nListening for hotkeys... (Keep this window in background)")
         print("=" * 70 + "\n")
 
@@ -72,9 +112,14 @@ class LiveCapture:
 
             print(f"  -> Saved: {full_path}")
 
-            # Detect user character from F8 screenshot
-            print("  -> Detecting your character...")
-            self._detect_user_from_screenshot(full_path)
+            # Detect user character and extract all players from F8 screenshot
+            print("  -> Detecting players and your character...")
+            self._detect_players_from_screenshot(full_path)
+
+            # Show overlay with win rates (schedule for main thread)
+            if self.overlay_enabled and self.overlay and self.detected_players:
+                print("  -> Showing win rate overlay...")
+                self._pending_overlay_action = 'show'
 
             print("  -> Ready! Press F9 when match ends.\n")
 
@@ -86,6 +131,10 @@ class LiveCapture:
         """Capture match end screenshot."""
         try:
             print(f"\n[{datetime.now().strftime('%H:%M:%S')}] F9 pressed - Capturing match END...")
+
+            # Hide overlay if configured
+            if self.overlay_enabled and self.config.get('ui.overlay.auto_close_on_f9', True):
+                self._pending_overlay_action = 'hide'
 
             # Small delay to ensure final scores are visible
             time.sleep(0.3)
@@ -115,21 +164,35 @@ class LiveCapture:
             self.match_start_time = None
             self.match_screenshots = {"start": None, "end": None}
             self.detected_user_character = None
+            self.detected_players = []
 
         except Exception as e:
             logger.error(f"Failed to capture match end: {e}")
             print(f"  -> ERROR: {e}\n")
 
-    def _detect_user_from_screenshot(self, screenshot_path: str):
-        """Detect user character from F8/F9 screenshot using bold detection."""
+    def _detect_players_from_screenshot(self, screenshot_path: str):
+        """Detect all players and user character from F8 screenshot."""
         try:
             from automation.match_processor import MatchProcessor
             from database.models import Database
+            import cv2
 
             db = Database(self.config.get('database.path'))
             processor = MatchProcessor(self.config, db)
 
-            # Detect user from screenshot
+            # Load image
+            image = cv2.imread(screenshot_path)
+            if image is None:
+                raise ValueError(f"Failed to load image: {screenshot_path}")
+
+            # Detect arena type from image (map selection is separate)
+            processor.detect_arena_type(image)
+
+            # Extract all players
+            players_data = processor._extract_all_players(image, "start")
+            self.detected_players = players_data
+
+            # Detect user character
             user_char, user_team, confidence = processor.detect_user_from_image(screenshot_path)
 
             if user_char:
@@ -139,12 +202,49 @@ class LiveCapture:
                 print(f"  -> WARNING: Could not detect your character (bold name not found)")
                 self.detected_user_character = None
 
+            # Fetch win rates for all players
+            for player in self.detected_players:
+                win_rate, total_matches = db.get_player_winrate(player['name'])
+                player['win_rate'] = win_rate
+                player['total_matches'] = total_matches
+                player['is_user'] = (
+                    self.detected_user_character and
+                    player['name'] == self.detected_user_character[0]
+                )
+
+            print(f"  -> Extracted {len(self.detected_players)} players with win rates")
+
             db.close()
 
         except Exception as e:
-            logger.error(f"User detection failed: {e}")
-            print(f"  -> WARNING: User detection failed: {e}")
+            logger.error(f"Error detecting user from image: {e}")
+            print(f"  -> WARNING: Could not detect your character (bold name not found)")
             self.detected_user_character = None
+            self.detected_players = []
+
+    def _build_player_stats(self) -> List[PlayerStats]:
+        """Build PlayerStats list from detected players."""
+        stats = []
+        for player in self.detected_players:
+            stats.append(PlayerStats(
+                name=player.get('name', 'Unknown'),
+                team=player.get('team', 'red'),
+                win_rate=player.get('win_rate', 0.0),
+                total_matches=player.get('total_matches', 0),
+                is_user=player.get('is_user', False)
+            ))
+        return stats
+
+    def _process_pending_overlay_action(self):
+        """Process pending overlay actions in the main thread."""
+        if self._pending_overlay_action == 'show' and self.overlay:
+            player_stats = self._build_player_stats()
+            if player_stats:
+                self.overlay.show(player_stats)
+            self._pending_overlay_action = None
+        elif self._pending_overlay_action == 'hide' and self.overlay:
+            self.overlay.hide()
+            self._pending_overlay_action = None
 
     def _auto_process_match(self):
         """Process captured match and log to database."""
@@ -179,7 +279,8 @@ class LiveCapture:
             match_id = processor.log_match(
                 match_data,
                 self.match_screenshots['start'],
-                self.match_screenshots['end']
+                self.match_screenshots['end'],
+                map_name=self.selected_map
             )
 
             # Display result
@@ -226,8 +327,18 @@ class LiveCapture:
                 raise
 
             # Keep running until ESC is pressed
+            # Use tkinter mainloop with polling for overlay updates
             while self.running:
-                time.sleep(0.1)
+                # Process pending overlay actions (thread-safe GUI updates)
+                self._process_pending_overlay_action()
+
+                # Update tkinter
+                try:
+                    self.root.update()
+                except tk.TclError:
+                    pass
+
+                time.sleep(0.05)  # 50ms polling interval
 
         except Exception as e:
             logger.error(f"Error in live capture: {e}")
@@ -236,6 +347,15 @@ class LiveCapture:
             keyboard.unhook_all()
             print("Hotkeys unregistered.")
 
+            # Cleanup overlay
+            if self.overlay:
+                self.overlay.destroy()
+            if self.root:
+                try:
+                    self.root.destroy()
+                except tk.TclError:
+                    pass
+
 
 if __name__ == "__main__":
     print("\nStarting GW2 PvP Live Capture...")
@@ -243,9 +363,6 @@ if __name__ == "__main__":
     print("\nPress any key to continue or Ctrl+C to cancel...")
 
     try:
-        # Wait for user confirmation
-        input()
-
         # Start live capture
         app = LiveCapture()
         app.run()

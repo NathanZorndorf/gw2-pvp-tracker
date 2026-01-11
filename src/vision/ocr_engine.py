@@ -56,8 +56,14 @@ class OCREngine:
         """Initialize EasyOCR reader (lazy loading)."""
         try:
             import easyocr
-            self.easyocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
-            logger.info("EasyOCR reader initialized")
+            # Use multiple languages to support accented characters (ô, ë, ä, ö, á, etc.)
+            # Common in GW2 player names
+            self.easyocr_reader = easyocr.Reader(
+                ['en', 'fr', 'de', 'es', 'pt'],
+                gpu=True,
+                verbose=False
+            )
+            logger.info("EasyOCR reader initialized with multi-language support")
         except ImportError:
             logger.warning("EasyOCR not installed, falling back to Tesseract")
             self.engine = "tesseract"
@@ -306,10 +312,15 @@ class OCREngine:
 
             score = int(text)
 
-            # Validate GW2 PvP score range
-            if validate_range and not (0 <= score <= 500):
-                logger.warning(f"Score {score} outside valid range (0-500)")
-                return None
+            # Validate GW2 PvP score (allow values above 500 — some modes go higher)
+            if validate_range:
+                if score < 0:
+                    logger.warning(f"Score {score} is negative, invalid")
+                    return None
+                # Accept reasonably large scores; reject obviously garbage values
+                if score > 9999:
+                    logger.warning(f"Score {score} outside reasonable range (0-9999)")
+                    return None
 
             logger.debug(f"Extracted score: {score}")
             return score
@@ -470,80 +481,111 @@ class OCREngine:
     def extract_player_name_regions(
         self,
         image: np.ndarray,
-        regions_config: dict
+        regions_config: dict,
+        arena_type: Optional[str] = None
     ) -> List[Tuple[np.ndarray, str]]:
         """
         Extract individual player name regions from roster screenshot.
 
         Args:
             image: Full screenshot image
-            regions_config: Dictionary with red_team_names and blue_team_names config
+            regions_config: Dictionary with roster region config. Can be either:
+                - New format: {'ranked': {...}, 'unranked': {...}}
+                - Legacy format: {'red_team_names': {...}, 'blue_team_names': {...}}
+            arena_type: Optional arena type ('ranked' or 'unranked'). If None and
+                using new config format, will auto-detect.
 
         Returns:
             List of (cropped_image, team) tuples for all 10 players
         """
         regions = []
 
-        # Extract red team names
-        red_config = regions_config['red_team_names']
-        for i in range(red_config['num_players']):
-            y_start = red_config['y_start'] + (i * red_config['row_height'])
-            y_end = y_start + red_config['row_height']
-            x_start = red_config['x_start']
-            x_end = red_config['x_end']
+        # Determine which config to use
+        if 'ranked' in regions_config or 'unranked' in regions_config:
+            # New format with arena-specific regions
+            if arena_type is None:
+                # Auto-detect arena type
+                arena_type, _ = self.detect_arena_type(image, regions_config)
 
-            name_region = image[y_start:y_end, x_start:x_end]
-            regions.append((name_region, 'red'))
+            if arena_type in regions_config:
+                config = regions_config[arena_type]
+            else:
+                # Fallback to default
+                default = regions_config.get('default_arena', 'unranked')
+                config = regions_config.get(default, regions_config.get('unranked', {}))
+                logger.warning(f"Arena type '{arena_type}' not found, using {default}")
+        else:
+            # Legacy format - use directly
+            config = regions_config
+
+        # Extract red team names
+        red_config = config.get('red_team_names', {})
+        if red_config:
+            for i in range(red_config.get('num_players', 5)):
+                y_start = red_config['y_start'] + (i * red_config['row_height'])
+                y_end = y_start + red_config['row_height']
+                x_start = red_config['x_start']
+                x_end = red_config['x_end']
+
+                name_region = image[y_start:y_end, x_start:x_end]
+                regions.append((name_region, 'red'))
 
         # Extract blue team names
-        blue_config = regions_config['blue_team_names']
-        for i in range(blue_config['num_players']):
-            y_start = blue_config['y_start'] + (i * blue_config['row_height'])
-            y_end = y_start + blue_config['row_height']
-            x_start = blue_config['x_start']
-            x_end = blue_config['x_end']
+        blue_config = config.get('blue_team_names', {})
+        if blue_config:
+            for i in range(blue_config.get('num_players', 5)):
+                y_start = blue_config['y_start'] + (i * blue_config['row_height'])
+                y_end = y_start + blue_config['row_height']
+                x_start = blue_config['x_start']
+                x_end = blue_config['x_end']
 
-            name_region = image[y_start:y_end, x_start:x_end]
-            regions.append((name_region, 'blue'))
+                name_region = image[y_start:y_end, x_start:x_end]
+                regions.append((name_region, 'blue'))
 
-        logger.debug(f"Extracted {len(regions)} player name regions")
+        logger.debug(f"Extracted {len(regions)} player name regions (arena: {arena_type})")
         return regions
 
     def _calculate_bold_score(self, region: np.ndarray) -> float:
         """
-        Calculate bold score using multiple metrics.
+        Calculate bold score by detecting cyan-colored text (user highlight in GW2).
+
+        In GW2, the user's name is displayed in cyan/teal color while other
+        players have white/gray text. This method detects that cyan highlight.
 
         Args:
             region: Image region containing text
 
         Returns:
-            Composite score (0.0-1.0, higher = more bold)
+            Score (0.0-1.0, higher = more likely user's name)
         """
-        # Convert to grayscale if needed
-        if len(region.shape) == 3:
-            gray = cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = region.copy()
+        if len(region.shape) != 3:
+            # Grayscale image, can't detect color
+            return 0.0
 
-        # Metric 1: Stroke width (white pixel density after thresholding)
-        # Bold text has thicker strokes → more white pixels
-        _, binary = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
-        white_ratio = np.sum(binary == 255) / binary.size
+        # Convert to HSV for color detection
+        hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
 
-        # Metric 2: Edge density (Canny edge detection)
-        # Bold text has more defined edges
-        edges = cv2.Canny(gray, 50, 150)
-        edge_ratio = np.sum(edges > 0) / edges.size
+        # Cyan/teal color range in HSV
+        # Cyan is around hue 80-100 in OpenCV's 0-180 scale
+        # The user's name appears as a light cyan/turquoise
+        cyan_lower = np.array([80, 30, 100])   # Lower bound (hue, sat, val)
+        cyan_upper = np.array([110, 255, 255])  # Upper bound
 
-        # Metric 3: Mean brightness
-        # Bold text appears slightly brighter in GW2 UI
-        brightness = np.mean(gray) / 255.0
+        # Create mask for cyan pixels
+        cyan_mask = cv2.inRange(hsv, cyan_lower, cyan_upper)
+        cyan_ratio = np.sum(cyan_mask > 0) / cyan_mask.size
 
-        # Weighted composite score
-        score = (white_ratio * 0.4) + (edge_ratio * 0.3) + (brightness * 0.3)
+        # Also check for light blue range (sometimes appears more blue-ish)
+        blue_lower = np.array([90, 20, 120])
+        blue_upper = np.array([120, 200, 255])
+        blue_mask = cv2.inRange(hsv, blue_lower, blue_upper)
+        blue_ratio = np.sum(blue_mask > 0) / blue_mask.size
 
-        logger.debug(f"Bold score: {score:.3f} (white={white_ratio:.3f}, edge={edge_ratio:.3f}, bright={brightness:.3f})")
-        return score
+        # Combined cyan/blue score
+        color_score = max(cyan_ratio, blue_ratio) * 10  # Scale up for visibility
+
+        logger.debug(f"Bold score: {color_score:.4f} (cyan={cyan_ratio:.4f}, blue={blue_ratio:.4f})")
+        return color_score
 
     def detect_bold_text(
         self,
@@ -578,3 +620,110 @@ class OCREngine:
         logger.debug(f"All scores: {[f'{s:.3f}' for s in bold_scores]}")
 
         return bold_index, confidence
+
+    def detect_arena_type(
+        self,
+        image: np.ndarray,
+        roster_regions: dict
+    ) -> Tuple[str, float]:
+        """
+        Detect arena type (ranked vs unranked) by testing OCR with both region sets.
+
+        The method extracts player name regions using both ranked and unranked
+        bounding boxes, runs OCR on each, and determines which produces more
+        valid text results.
+
+        Args:
+            image: Full screenshot image
+            roster_regions: Config dict containing 'ranked' and 'unranked' region sets
+
+        Returns:
+            Tuple of (arena_type, confidence)
+            arena_type: "ranked" or "unranked"
+            confidence: Score difference (higher = more confident)
+        """
+        def _run_pass(preprocess_flag: bool) -> dict:
+            scores = {}
+            for arena_type in ['ranked', 'unranked']:
+                if arena_type not in roster_regions:
+                    continue
+
+                regions_config = roster_regions[arena_type]
+                total_score = 0.0
+                valid_extractions = 0
+
+                # Extract and OCR red team names
+                red_cfg = regions_config['red_team_names']
+                for i in range(red_cfg['num_players']):
+                    y_start = red_cfg['y_start'] + (i * red_cfg['row_height'])
+                    y_end = y_start + red_cfg['row_height']
+                    x_start = red_cfg['x_start']
+                    x_end = red_cfg['x_end']
+
+                    # Bounds check
+                    if y_end > image.shape[0] or x_end > image.shape[1]:
+                        continue
+
+                    region = image[y_start:y_end, x_start:x_end]
+                    text = self.extract_text(region, whitelist=self.name_whitelist, preprocess=preprocess_flag)
+
+                    # Score based on text quality
+                    if text and len(text.strip()) >= 2:
+                        valid_extractions += 1
+                        # Bonus for longer names (more likely valid)
+                        total_score += min(len(text.strip()) / 15.0, 1.0)
+
+                # Extract and OCR blue team names
+                blue_cfg = regions_config['blue_team_names']
+                for i in range(blue_cfg['num_players']):
+                    y_start = blue_cfg['y_start'] + (i * blue_cfg['row_height'])
+                    y_end = y_start + blue_cfg['row_height']
+                    x_start = blue_cfg['x_start']
+                    x_end = blue_cfg['x_end']
+
+                    # Bounds check
+                    if y_end > image.shape[0] or x_end > image.shape[1]:
+                        continue
+
+                    region = image[y_start:y_end, x_start:x_end]
+                    text = self.extract_text(region, whitelist=self.name_whitelist, preprocess=preprocess_flag)
+
+                    if text and len(text.strip()) >= 2:
+                        valid_extractions += 1
+                        total_score += min(len(text.strip()) / 15.0, 1.0)
+
+                scores[arena_type] = (valid_extractions, total_score)
+                logger.debug(f"Arena detection - {arena_type}: {valid_extractions} valid names, score={total_score:.2f}")
+
+            return scores
+
+        # Run detection with full preprocessing for accuracy
+        arena_scores = _run_pass(preprocess_flag=True)
+
+        # Determine winner from first pass
+        if not arena_scores:
+            default = roster_regions.get('default_arena', 'unranked')
+            logger.warning(f"No arena regions found, using default: {default}")
+            return default, 0.0
+
+        # Compare by valid extractions first, then by total score
+        ranked_valid, ranked_score = arena_scores.get('ranked', (0, 0))
+        unranked_valid, unranked_score = arena_scores.get('unranked', (0, 0))
+
+        if ranked_valid > unranked_valid:
+            confidence = (ranked_valid - unranked_valid) / 10.0
+            arena_choice = 'ranked'
+        elif unranked_valid > ranked_valid:
+            confidence = (unranked_valid - ranked_valid) / 10.0
+            arena_choice = 'unranked'
+        else:
+            # Tie on valid extractions, use total score
+            if ranked_score > unranked_score:
+                confidence = (ranked_score - unranked_score) / 10.0
+                arena_choice = 'ranked'
+            else:
+                confidence = (unranked_score - ranked_score) / 10.0
+                arena_choice = 'unranked'
+
+        logger.info(f"Arena type detected: {arena_choice} (confidence: {confidence:.2f})")
+        return arena_choice, confidence

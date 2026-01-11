@@ -1,0 +1,27 @@
+# Ground truth data for OCR evaluation
+# Manually verified from sample screenshots
+
+samples:
+  - filename: "match_end_20260110_103751_full.png"
+    description: "End of match scoreboard"
+    scores:
+      red: 347
+      blue: 500
+
+  - filename: "match_start_20260110_102550_full.png"
+    description: "Start of match scoreboard"
+    scores:
+      red: 0
+      blue: 0
+    red_team:
+      - "Carmenza"
+      - "Fahrôs"
+      - "I Am Thë Wëäpön"
+      - "Darklikes"
+      - "Mira Phantom"
+    blue_team:
+      - "Katrimus"
+      - "General Huggles"
+      - "Veiny Trunk"
+      - "Grizzik Rainhall"
+      - "Phantom Tithe"

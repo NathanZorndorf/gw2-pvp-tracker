@@ -1,29 +1,13 @@
 {
   "permissions": {
     "allow": [
-      "Bash(copy manual_match_entry.py scriptsdemomanual_match_entry.py)",
-      "Bash(del manual_match_entry.py)",
-      "Bash(copy process_screenshots.py scriptsdemoprocess_screenshots.py)",
-      "Bash(del process_screenshots.py)",
-      "Bash(copy test_components.py scriptsdemotest_components.py)",
-      "Bash(del test_components.py)",
-      "Bash(copy test_ocr_on_roster.py scriptsdemotest_ocr_on_roster.py)",
-      "Bash(del:*)",
-      "Bash(copy cleanup_screenshots.py scriptsutilscleanup_screenshots.py)",
-      "Bash(python -c:*)",
-      "Bash(grep:*)",
-      "Bash(python calibrate_coordinates.py:*)",
+      "*",
       "Bash(.venvScriptsactivate)",
-      "Bash(pip install:*)",
-      "Bash(.\\\\venv\\\\Scripts\\\\pip.exe install:*)",
-      "Bash(./venv/Scripts/pip.exe install:*)",
-      "Bash(dir /B \"C:\\\\Users\\\\nzorn\\\\Documents\\\\gw2-pvp-tracker\\\\src\")",
-      "Bash(./venv/Scripts/python.exe:*)",
-      "Bash(git add:*)",
-      "Bash(git commit -m \"$\\(cat <<''EOF''\nfeat: Replace Tesseract with EasyOCR for improved OCR accuracy\n\n- Add EasyOCR as primary OCR engine \\(100% score accuracy vs 0% with Tesseract\\)\n- Add CLAHE contrast enhancement for better text recognition\n- Update OCR engine to support both EasyOCR and Tesseract \\(configurable\\)\n- Add debug mode to save extracted regions to data/debug/ for troubleshooting\n- Update config.yaml with corrected scoreboard coordinates\n- Add match processor module for automated extraction pipeline\n- Add OCR benchmark script for comparing OCR methods\n- Improve screenshot capture with max quality PNG settings\n\nOCR improvements tested against ground truth data:\n- Score extraction: 100% accuracy \\(EasyOCR + CLAHE\\)\n- Name extraction: 90% fuzzy match accuracy\n\nCo-Authored-By: Claude Opus 4.5 <noreply@anthropic.com>\nEOF\n\\)\")"
-    ]
-  },
-  "allow": [
-    "*"
-  ]
+      "Bash(pytest:*)",
+      "Bash(C:/Users/nzorn/Documents/gw2-pvp-tracker/venv/Scripts/python.exe -m pytest:*)",
+      "Bash(C:/Users/nzorn/Documents/gw2-pvp-tracker/venv/Scripts/python.exe:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
 }
