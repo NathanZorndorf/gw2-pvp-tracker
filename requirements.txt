@@ -27,3 +27,5 @@ pytest>=7.4.0
 PySide6>=6.6.0
 matplotlib>=3.8.0
 pandas>=2.2.0
+
+requests
