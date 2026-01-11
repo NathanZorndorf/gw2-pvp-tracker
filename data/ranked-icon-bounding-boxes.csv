@@ -1,0 +1,11 @@
+label_name,bbox_x,bbox_y,bbox_width,bbox_height,image_name,image_width,image_height
+Red Player 1 - Class,1128,672,70,64,match_start_20260110_171954_full.png,3840,2160
+Red Player 2 - Class,1124,731,72,66,match_start_20260110_171954_full.png,3840,2160
+Red Player 3 - Class,1126,797,68,57,match_start_20260110_171954_full.png,3840,2160
+Red Player 4 - Class,1120,850,74,64,match_start_20260110_171954_full.png,3840,2160
+Red Player 5 - Class,1124,914,72,53,match_start_20260110_171954_full.png,3840,2160
+Blue Player 1 - Class,2658,682,70,55,match_start_20260110_171954_full.png,3840,2160
+Blue Player 2 - Class,2656,736,72,66,match_start_20260110_171954_full.png,3840,2160
+Blue Player 3 - Class,2658,799,70,55,match_start_20260110_171954_full.png,3840,2160
+Blue Player 4 - Class,2656,857,68,59,match_start_20260110_171954_full.png,3840,2160
+Blue Player 5 - Class,2658,914,70,64,match_start_20260110_171954_full.png,3840,2160
