@@ -57,11 +57,36 @@ def letterbox_image(img, target_size=REFERENCE_ICON_SIZE) -> np.ndarray:
 
     return canvas
 
+def boost_contrast_color(img):
+    # Check if image is grayscale (1 channel) or color (3 channels)
+    if len(img.shape) == 2 or img.shape[2] == 1:
+        # Apply CLAHE directly to grayscale image
+        clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(2,2))
+        return clahe.apply(img)
+    else:
+        # Original color processing
+        # Convert BGR to LAB
+        lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+
+        # Apply CLAHE to the L-channel (Lightness)
+        # This makes lighters lighter and darkers darker locally
+        clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(2,2))
+        cl = clahe.apply(l)
+
+        # Merge channels back and convert to BGR
+        limg = cv2.merge((cl, a, b))
+        return cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+
 def target_icon_pre_processing_pipeline(img: np.ndarray) -> None:
     print(f'Original img.shape: {img.shape}')
 
     # 1. Apply Greyscale
     img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+    # brighten 
+    # img = boost_contrast_color(img)
+    # img = cv2.convertScaleAbs(img, alpha=1.5, beta=30)  # increase contrast and brightness
 
     # 2. Resize 
     img = cv2.resize(img, REFERENCE_ICON_SIZE, interpolation=cv2.INTER_AREA)
@@ -83,7 +108,7 @@ def target_icon_pre_processing_pipeline(img: np.ndarray) -> None:
 paths = os.listdir("data/target-icons")
 paths = [os.path.join("data/target-icons", path) for path in paths if path.endswith(".png")]
 
-# path = paths[0]
+# path = paths[-3]
 # img = load_image(path)
 # img = target_icon_pre_processing_pipeline(img)
 # show_image(img, "Reference Icon")
