@@ -60,3 +60,4 @@ htmlcov/
 *.png
 screenshots/
 data/samples/
+scripts/processing-pipeline/*.csv
