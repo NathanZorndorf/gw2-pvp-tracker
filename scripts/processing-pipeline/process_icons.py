@@ -29,10 +29,68 @@ parser.add_argument('--algorithms', nargs='+', choices=['template', 'sift', 'orb
                     help='Algorithms to run (default: template)')
 parser.add_argument('--template-method', choices=['TM_CCOEFF_NORMED', 'TM_CCORR_NORMED', 'TM_SQDIFF_NORMED'], 
                     default='TM_CCOEFF_NORMED', help='Template matching method')
+parser.add_argument('--grid-search', action='store_true', 
+                    help='Perform grid search hyperparameter optimization for template matching')
+parser.add_argument('--bilateral', action='store_true', help='Apply bilateral filtering to smooth noise while preserving edges')
+parser.add_argument('--mask-circular', action='store_true', help='Apply circular mask to remove corner artifacts')
+parser.add_argument('--morph-closing', action='store_true', help='Apply morphological closing to bridge gaps in contours')
 args = parser.parse_args()
 
 if 'all' in args.algorithms:
     args.algorithms = ['template', 'sift', 'orb', 'cnn']
+
+# Grid search parameters for template matching optimization
+TEMPLATE_METHODS = ['TM_CCOEFF_NORMED', 'TM_CCORR_NORMED', 'TM_SQDIFF_NORMED']
+CLAHE_CLIPS = [1.0, 2.0, 3.0]
+CLAHE_TILES = [(2,2), (4,4), (8,8)]
+CANNY_MINS = [30, 50, 100]
+CANNY_MAXS = [150, 200, 255]
+INTERPOLATIONS = [cv2.INTER_AREA, cv2.INTER_LINEAR, cv2.INTER_CUBIC]
+
+def run_template_matching_with_params(target_images, ref_images, template_method, clahe_clip, clahe_tile, canny_min, canny_max, interpolation):
+    """Run template matching with specific parameters and return results"""
+    results = []
+    
+    for target_name, target_img in target_images.items():
+        best_match = None
+        highest_score = -1
+        
+        for ref_name, ref_img in ref_images.items():
+            # Preprocess with parameters
+            target_proc = target_icon_pre_processing_pipeline(target_img, clahe_clip, clahe_tile, canny_min, canny_max, interpolation)
+            ref_proc = target_icon_pre_processing_pipeline(ref_img, clahe_clip, clahe_tile, canny_min, canny_max, interpolation)
+            method = getattr(cv2, template_method)
+            score = match_template(target_proc, ref_proc, method)
+            
+            if score > highest_score:
+                highest_score = score
+                best_match = ref_name
+        
+        results.append({
+            'target': target_name,
+            'best_match': best_match,
+            'similarity': highest_score
+        })
+    
+    return results
+
+def evaluate_accuracy(results, ground_truth):
+    """Calculate accuracy for given results"""
+    predictions = {}
+    for row in results:
+        predicted_profession = row['best_match'].replace('.png', '') if row['best_match'] else None
+        predictions[row['target']] = predicted_profession
+
+    correct = 0
+    total = 0
+    for target_file, actual in ground_truth.items():
+        if target_file in predictions:
+            total += 1
+            if predictions[target_file] == actual:
+                correct += 1
+    
+    accuracy = correct / total * 100 if total > 0 else 0
+    return accuracy, correct, total
 
 # load a single image from data/extracted-icons
 def load_image(image_path: str) -> np.ndarray:
@@ -104,27 +162,43 @@ def boost_contrast_color(img):
         limg = cv2.merge((cl, a, b))
         return cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
 
-def target_icon_pre_processing_pipeline(img: np.ndarray) -> None:
-    print(f'Original img.shape: {img.shape}')
+def target_icon_pre_processing_pipeline(img: np.ndarray, clahe_clip=1.0, clahe_tile=(2,2), canny_min=50, canny_max=150, interpolation=cv2.INTER_AREA,
+                                      use_bilateral=False, use_mask_circular=False, use_morph_closing=False) -> np.ndarray:
+    # print(f'Original img.shape: {img.shape}')
 
     # 1. Apply Greyscale
     img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # brighten 
-    # img = boost_contrast_color(img)
-    # img = cv2.convertScaleAbs(img, alpha=1.5, beta=30)  # increase contrast and brightness
-
     # 2. Resize 
-    img = cv2.resize(img, REFERENCE_ICON_SIZE, interpolation=cv2.INTER_AREA)
+    img = cv2.resize(img, REFERENCE_ICON_SIZE, interpolation=interpolation)
     img = letterbox_image(img, REFERENCE_ICON_SIZE)
 
+    # NEW: Bilateral Filter (Smooths noise while preserving edges)
+    if use_bilateral:
+        # d=5, sigmaColor=75, sigmaSpace=75 are common defaults
+        img = cv2.bilateralFilter(img, 5, 75, 75)
+
     # 3. Enhance Contrast (CLAHE is better than global equalization)
-    clahe = cv2.createCLAHE(clipLimit=1.0, tileGridSize=(2,2))
+    clahe = cv2.createCLAHE(clipLimit=clahe_clip, tileGridSize=clahe_tile)
     img = clahe.apply(img)
 
     # 4. Extract Edges (Optional but recommended for icons)
     # This makes the "shape" the only thing that matters
-    edges = cv2.Canny(img, 50, 150)
+    edges = cv2.Canny(img, canny_min, canny_max)
+
+    # NEW: Morphological Closing (Bridge gaps)
+    if use_morph_closing:
+        kernel = np.ones((2,2), np.uint8)
+        edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
+
+    # NEW: Circular Mask (Remove corner artifacts)
+    if use_mask_circular:
+        h, w = edges.shape
+        mask = np.zeros((h, w), dtype=np.uint8)
+        # Assuming icon is centered, radius is half of width (minus a bit of margin if needed)
+        cv2.circle(mask, (w//2, h//2), w//2, 255, -1)
+        edges = cv2.bitwise_and(edges, edges, mask=mask)
+
     img = cv2.cvtColor(edges, cv2.COLOR_GRAY2RGB)
 
     return img
@@ -239,6 +313,96 @@ def match_cnn(target_tensor, ref_tensor, model):
     return cos_sim.item()
 
 
+def perform_grid_search():
+    """Perform grid search over template matching hyperparameters"""
+    print("Starting grid search for template matching hyperparameters...")
+    
+    # Load images
+    target_images_orig = {}
+    for filename in os.listdir("../../data/target-icons"):
+        if filename.endswith('.png'):
+            path = os.path.join("../../data/target-icons", filename)
+            target_images_orig[filename] = cv2.imread(path)
+
+    ref_images_orig = {}
+    for filename in os.listdir("../../data/reference-icons/icons-white"):
+        if filename.endswith('.png'):
+            path = os.path.join("../../data/reference-icons/icons-white", filename)
+            ref_images_orig[filename] = cv2.imread(path)
+
+    # Load ground truth
+    ground_truth = {}
+    mappings_file = "../../data/target-icons/mappings.csv"
+    with open(mappings_file, 'r') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for row in reader:
+            ground_truth[row['file_name']] = row['mapping_icon_name']
+
+    best_accuracy = 0
+    best_params = None
+    results_summary = []
+
+    total_combinations = len(TEMPLATE_METHODS) * len(CLAHE_CLIPS) * len(CLAHE_TILES) * len(CANNY_MINS) * len(CANNY_MAXS) * len(INTERPOLATIONS)
+    print(f"Testing {total_combinations} parameter combinations...")
+    
+    combination_count = 0
+    for template_method in TEMPLATE_METHODS:
+        for clahe_clip in CLAHE_CLIPS:
+            for clahe_tile in CLAHE_TILES:
+                for canny_min in CANNY_MINS:
+                    for canny_max in CANNY_MAXS:
+                        for interpolation in INTERPOLATIONS:
+                            combination_count += 1
+                            
+                            # Run matching with these parameters
+                            results = run_template_matching_with_params(
+                                target_images_orig, ref_images_orig, 
+                                template_method, clahe_clip, clahe_tile, 
+                                canny_min, canny_max, interpolation
+                            )
+                            
+                            # Evaluate accuracy
+                            accuracy, correct, total = evaluate_accuracy(results, ground_truth)
+                            
+                            params = {
+                                'template_method': template_method,
+                                'clahe_clip': clahe_clip,
+                                'clahe_tile': clahe_tile,
+                                'canny_min': canny_min,
+                                'canny_max': canny_max,
+                                'interpolation': interpolation,
+                                'accuracy': accuracy,
+                                'correct': correct,
+                                'total': total
+                            }
+                            
+                            results_summary.append(params)
+                            
+                            if accuracy > best_accuracy:
+                                best_accuracy = accuracy
+                                best_params = params
+                            
+                            print(f"[{combination_count}/{total_combinations}] {template_method} | CLAHE({clahe_clip},{clahe_tile}) | Canny({canny_min},{canny_max}) | Acc: {accuracy:.2f}%")
+    
+    # Save results
+    with open('grid_search_results.csv', 'w', newline='') as csvfile:
+        fieldnames = ['template_method', 'clahe_clip', 'clahe_tile', 'canny_min', 'canny_max', 'interpolation', 'accuracy', 'correct', 'total']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(results_summary)
+    
+    print("\nGrid search complete!")
+    print(f"Best accuracy: {best_accuracy:.2f}%")
+    print(f"Best parameters: {best_params}")
+    
+    return best_params
+
+# Run grid search if requested
+if args.grid_search:
+    best_params = perform_grid_search()
+    exit(0)
+
+
 # Load original images
 target_images_orig = {}
 for filename in os.listdir("data/target-icons"):
@@ -254,15 +418,17 @@ for filename in os.listdir("data/reference-icons/icons-white"):
 
 # Prepare CNN model if needed
 cnn_model = None
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = None
 if 'cnn' in args.algorithms and TORCH_AVAILABLE:
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     cnn_model = resnet18(pretrained=True)
     cnn_model = torch.nn.Sequential(*list(cnn_model.children())[:-1])  # Remove final layers
     cnn_model.to(device)
     cnn_model.eval()
 elif 'cnn' in args.algorithms and not TORCH_AVAILABLE:
     print("PyTorch not available, skipping CNN")
-    args.algorithms.remove('cnn')
+    if 'cnn' in args.algorithms:
+        args.algorithms.remove('cnn')
 
 # Run matching for each algorithm
 all_results = {}
@@ -299,8 +465,18 @@ for algorithm in args.algorithms:
         for ref_name, ref_img in ref_images_orig.items():
             if algorithm == 'template':
                 # Preprocess for template
-                target_proc = target_icon_pre_processing_pipeline(target_img)
-                ref_proc = target_icon_pre_processing_pipeline(ref_img)
+                target_proc = target_icon_pre_processing_pipeline(
+                    target_img, 
+                    use_bilateral=args.bilateral, 
+                    use_mask_circular=args.mask_circular, 
+                    use_morph_closing=args.morph_closing
+                )
+                ref_proc = target_icon_pre_processing_pipeline(
+                    ref_img, 
+                    use_bilateral=args.bilateral, 
+                    use_mask_circular=args.mask_circular, 
+                    use_morph_closing=args.morph_closing
+                )
                 method = getattr(cv2, args.template_method)
                 score = match_template(target_proc, ref_proc, method)
             elif algorithm == 'sift':
