@@ -1,0 +1,5 @@
+- always activate virtual environment at root before running any code
+- always run pytests before moving on
+- ensure code "compiles" and runs successfully and if it does iterarte until it does. 
+- avoid putting code files at the root dir - try to use an intelligent folder structure 
+- always create tests (pytests, or otherwise) for any functionality that you create in src/
