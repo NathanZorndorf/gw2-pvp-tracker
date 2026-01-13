@@ -149,12 +149,14 @@ class MatchAnalysisWidget(QWidget):
         players = []
         for p in parts:
             name = p[0]
+            profession = p[1]
             team = p[2]
             is_user = bool(p[3])
             # For analysis panel we might want current winrates
             win_rate, total = db.get_player_winrate(name)
             players.append({
                 'name': name,
+                'profession': profession,
                 'team': team,
                 'win_rate': win_rate,
                 'total_matches': total,

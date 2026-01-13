@@ -11,7 +11,9 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QPushButton,
 )
+from PySide6.QtGui import QPixmap
 from PySide6.QtCore import Qt
+import os
 
 from .styles import COLORS, get_star_count, SYMBOLS, get_winrate_color, FONTS
 from .confidence import format_winrate
@@ -29,13 +31,14 @@ def stars_display(win_rate: float, total_matches: int) -> str:
 
 
 class PlayerCardWidget(QWidget):
-    def __init__(self, name: str, team: str, win_rate: float, total_matches: int, is_user: bool = False, parent=None):
+    def __init__(self, name: str, team: str, win_rate: float, total_matches: int, is_user: bool = False, profession: str = None, parent=None):
         super().__init__(parent)
         self.name = name
         self.team = team
         self.win_rate = win_rate
         self.total_matches = total_matches
         self.is_user = is_user
+        self.profession = profession
 
         self._init_ui()
 
@@ -66,6 +69,17 @@ class PlayerCardWidget(QWidget):
         matches.setFixedWidth(50)
         matches.setStyleSheet(f"color: {COLORS['text_secondary']}; font-family: {FONTS['small'][0]}; font-size: {FONTS['small'][1]}px;")
         layout.addWidget(matches)
+
+        # Icon
+        if self.profession:
+            # Profession names in DB are capitalized e.g. "Mesmer", filenames are "Mesmer.png"
+            icon_path = f"data/reference-icons/icons-raw/{self.profession}.png"
+            if os.path.exists(icon_path):
+                icon_label = QLabel()
+                pixmap = QPixmap(icon_path)
+                if not pixmap.isNull():
+                    icon_label.setPixmap(pixmap.scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                    layout.addWidget(icon_label)
 
         name = QLabel(self.name)
         name.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -144,11 +158,11 @@ class WinRatePanel(QWidget):
         add_team_header(self.blue_column, "BLUE TEAM", COLORS['team_blue'])
 
         for p in red_players:
-            card = PlayerCardWidget(p.get('name', 'Unknown'), 'red', p.get('win_rate', 0.0), p.get('total_matches', 0), p.get('is_user', False))
+            card = PlayerCardWidget(p.get('name', 'Unknown'), 'red', p.get('win_rate', 0.0), p.get('total_matches', 0), p.get('is_user', False), profession=p.get('profession'))
             self.red_column.addWidget(card)
 
         for p in blue_players:
-            card = PlayerCardWidget(p.get('name', 'Unknown'), 'blue', p.get('win_rate', 0.0), p.get('total_matches', 0), p.get('is_user', False))
+            card = PlayerCardWidget(p.get('name', 'Unknown'), 'blue', p.get('win_rate', 0.0), p.get('total_matches', 0), p.get('is_user', False), profession=p.get('profession'))
             self.blue_column.addWidget(card)
 
 
