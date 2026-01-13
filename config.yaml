@@ -107,6 +107,19 @@ roster_regions:
       width: 217
       height: 76
 
+    # Icon regions for profession detection (estimated ~25px lower than ranked)
+    icon_regions:
+      red_team:
+        x: 1124
+        y: 705      # ~25px lower than ranked (680 + 25)
+        width: 74
+        height: 290
+      blue_team:
+        x: 2653
+        y: 705      # ~25px lower than ranked
+        width: 71
+        height: 292
+
   # Ranked Arena bounding boxes (from ranked-gameplay-1 samples)
   ranked:
     red_team_names:
@@ -140,6 +153,30 @@ roster_regions:
       y: 412
       width: 197
       height: 70
+
+    # Icon regions for profession detection (from ranked-icon-bounding-boxes-rectangle.csv)
+    icon_regions:
+      red_team:
+        x: 1124
+        y: 680
+        width: 74
+        height: 290
+      blue_team:
+        x: 2653
+        y: 680
+        width: 71
+        height: 292
+
+# Profession Detection Settings
+profession_detection:
+  enabled: true
+  reference_icons_path: "data/reference-icons/icons-white"
+  confidence_threshold: 0.2  # Low threshold - template matching scores range 0.2-0.8, many correct matches are 0.3-0.5
+  preprocessing:
+    clahe_clip: 1.0
+    clahe_tile: [2, 2]
+    canny_min: 50
+    canny_max: 150
 
 # Debug Settings
 debug:

@@ -10,6 +10,7 @@ from typing import Dict, List, Tuple, Optional, Any
 import logging
 
 from vision.ocr_engine import OCREngine
+from vision.profession_detector import ProfessionDetector
 from database.models import Database
 from config import Config
 
@@ -41,6 +42,9 @@ class MatchProcessor:
             use_clahe=config.get('ocr.use_clahe', True),
             resize_factor=config.get('ocr.resize_factor', 2.0)
         )
+
+        # Initialize profession detector
+        self.profession_detector = ProfessionDetector(config)
 
         # Arena type detected from current match (set during processing)
         self._current_arena_type: Optional[str] = None
@@ -296,9 +300,58 @@ class MatchProcessor:
             logger.error(f"Score extraction failed: {e}")
             return 0, 0
 
+    def _detect_professions_from_image(self, image: np.ndarray) -> List[str]:
+        """
+        Detect professions from match screenshot.
+
+        Args:
+            image: Full screenshot image
+
+        Returns:
+            List of 10 profession names in player order (red 0-4, blue 0-4)
+        """
+        if not self.config.get('profession_detection.enabled', True):
+            return ['Unknown'] * 10
+
+        try:
+            results = self.profession_detector.detect_professions(
+                image,
+                arena_type=self._current_arena_type
+            )
+
+            # Initialize with Unknown
+            professions = ['Unknown'] * 10
+
+            # Map results to player indices
+            # Red team: indices 0-4, Blue team: indices 5-9
+            for result in results:
+                player_idx = result['player_index']
+                if result['team'] == 'red':
+                    idx = player_idx
+                elif result['team'] == 'blue':
+                    idx = player_idx + 5
+                else:
+                    continue
+
+                if 0 <= idx < 10:
+                    confidence_threshold = self.config.get('profession_detection.confidence_threshold', 0.5)
+                    if result['confidence'] >= confidence_threshold:
+                        professions[idx] = result['profession']
+                    else:
+                        logger.debug(
+                            f"Low confidence for {result['team']} player {player_idx}: "
+                            f"{result['profession']} ({result['confidence']:.3f})"
+                        )
+
+            return professions
+
+        except Exception as e:
+            logger.warning(f"Profession detection failed: {e}")
+            return ['Unknown'] * 10
+
     def _extract_all_players(self, image: np.ndarray, source: str = "end") -> List[Dict]:
         """
-        Extract all 10 player names (no professions for now).
+        Extract all 10 player names and professions.
 
         Args:
             image: Full screenshot image
@@ -318,6 +371,9 @@ class MatchProcessor:
             # Get known names for fuzzy matching
             known_names = self.db.get_all_player_names()
             fuzzy_threshold = self.config.get('fuzzy.name_match_threshold', 80)
+
+            # Detect professions from image
+            professions = self._detect_professions_from_image(image)
 
             # Preprocess each name region once (reduce repeated expensive ops)
             preprocessed_regions = []
@@ -362,9 +418,12 @@ class MatchProcessor:
                     name = f"Unknown_{idx}"
                     logger.warning(f"Failed to extract name for player {idx}, using {name}")
 
+                # Get profession for this player
+                profession = professions[idx] if idx < len(professions) else 'Unknown'
+
                 players.append({
                     'name': name,
-                    'profession': 'Unknown',  # Profession detection not implemented yet
+                    'profession': profession,
                     'team': team
                 })
 

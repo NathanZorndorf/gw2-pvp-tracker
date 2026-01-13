@@ -491,6 +491,84 @@ class Database:
 
         return [dict(row) for row in cursor.fetchall()]
 
+    def get_matches_with_screenshots(self) -> List[Dict]:
+        """
+        Get all matches that have saved screenshots.
+
+        Returns:
+            List of match dicts with screenshot paths
+        """
+        cursor = self.connection.cursor()
+        cursor.execute("""
+            SELECT match_id, screenshot_start_path, screenshot_end_path, arena_type
+            FROM matches
+            WHERE screenshot_start_path IS NOT NULL
+            ORDER BY timestamp DESC
+        """)
+
+        return [dict(row) for row in cursor.fetchall()]
+
+    def get_match_participants(self, match_id: int) -> List[Dict]:
+        """
+        Get all participants for a specific match.
+
+        Args:
+            match_id: Match ID
+
+        Returns:
+            List of participant dicts
+        """
+        cursor = self.connection.cursor()
+        cursor.execute("""
+            SELECT participant_id, char_name, profession, team_color
+            FROM match_participants
+            WHERE match_id = ?
+            ORDER BY team_color, participant_id
+        """, (match_id,))
+
+        return [dict(row) for row in cursor.fetchall()]
+
+    def update_participant_profession(self, participant_id: int, profession: str) -> bool:
+        """
+        Update profession for a match participant.
+
+        Args:
+            participant_id: Participant ID
+            profession: Profession name
+
+        Returns:
+            True if successful
+        """
+        try:
+            cursor = self.connection.cursor()
+            cursor.execute("""
+                UPDATE match_participants
+                SET profession = ?
+                WHERE participant_id = ?
+            """, (profession, participant_id))
+
+            self.connection.commit()
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to update participant profession: {e}")
+            return False
+
+    def recalculate_most_played_profession(self, char_name: str) -> None:
+        """
+        Recalculate and update the most played profession for a player.
+
+        Args:
+            char_name: Character name
+        """
+        try:
+            self._update_most_played_profession(char_name)
+            self.connection.commit()
+            logger.debug(f"Recalculated most_played_profession for {char_name}")
+
+        except Exception as e:
+            logger.error(f"Failed to recalculate most_played_profession for {char_name}: {e}")
+
     def close(self):
         """Close database connection."""
         if self.connection:
