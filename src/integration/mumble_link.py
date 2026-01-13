@@ -62,10 +62,15 @@ class MumbleLink:
     """
     Interface to the Guild Wars 2 MumbleLink shared memory.
     """
-    def __init__(self):
+    def __init__(self, map_csv_path: Optional[str] = None):
         self.size_link = ctypes.sizeof(Link)
         self.size_context = ctypes.sizeof(Context)
+        self.map_names = PVP_MAPS.copy()
         
+        # Load extra map names if CSV is provided
+        if map_csv_path:
+            self.load_map_names(map_csv_path)
+
         # Calculate total memory size
         # Link struct (1108) + Context (approx 80-90) + Padding
         # The total size must match exactly what GW2 allocates: 5460 bytes
@@ -91,6 +96,22 @@ class MumbleLink:
         except Exception as e:
             logger.error(f"Error connecting to MumbleLink: {e}")
             self._linked = False
+
+    def load_map_names(self, csv_path: str):
+        """Loads MapID -> MapName mappings from a CSV file."""
+        import csv
+        try:
+            with open(csv_path, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if 'MapID' in row and 'MapName' in row:
+                        try:
+                            map_id = int(row['MapID'])
+                            self.map_names[map_id] = row['MapName']
+                        except ValueError:
+                            continue
+        except Exception as e:
+            logger.error(f"Failed to load map names from {csv_path}: {e}")
 
     @property
     def is_active(self) -> bool:
@@ -163,8 +184,8 @@ class MumbleLink:
 
     def get_map_name(self) -> str:
         map_id = self.get_map_id()
-        if map_id in PVP_MAPS:
-            return PVP_MAPS[map_id]
+        if map_id in self.map_names:
+            return self.map_names[map_id]
         return f"Unknown Map ({map_id})" if map_id else "Unknown"
 
     def close(self):

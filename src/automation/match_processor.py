@@ -12,6 +12,7 @@ import logging
 from vision.ocr_engine import OCREngine
 from vision.profession_detector import ProfessionDetector
 from database.models import Database
+from integration.mumble_link import MumbleLink
 from config import Config
 
 logger = logging.getLogger(__name__)
@@ -45,6 +46,9 @@ class MatchProcessor:
 
         # Initialize profession detector
         self.profession_detector = ProfessionDetector(config)
+
+        # Initialize MumbleLink
+        self.mumble_link = MumbleLink('data/map_ids.csv')
 
         # Arena type detected from current match (set during processing)
         self._current_arena_type: Optional[str] = None
@@ -147,12 +151,50 @@ class MatchProcessor:
             if self._current_arena_type is None:
                 self.detect_arena_type(image)
 
+            # Try to get user name from MumbleLink first
+            self.mumble_link.read()
+            mumble_name = None
+            if self.mumble_link.is_active:
+                identity = self.mumble_link.get_identity()
+                mumble_name = identity.get('name')
+                if mumble_name:
+                    logger.info(f"MumbleLink detected user name: {mumble_name}")
+
             # Extract player name regions using detected arena type
             regions_config = self.config.get('roster_regions')
             name_regions = self.ocr.extract_player_name_regions(
                 image, regions_config, arena_type=self._current_arena_type
             )
+            
+            # If we have MumbleLink name, find which team they are on
+            if mumble_name:
+                # We need to run OCR on the regions to find which one matches MumbleLink name
+                # Or we can just run a quick check if we assume the user is rendering the MumbleLink data? NO.
+                # We need to match MumbleLink name to one of the regions to ID the team.
+                
+                # Check fuzzy matching against all regions
+                # This could be expensive, so we only do it if we have the name
+                from thefuzz import process
+                
+                # Extract text from all regions
+                extracted_names = []
+                for idx, (region, team) in enumerate(name_regions):
+                    text = self.ocr.extract_text(region, psm=7, preprocess=True)
+                    if text:
+                        extracted_names.append((text, team, idx))
+                
+                # Find best match for mumble_name
+                if extracted_names:
+                    choices = [x[0] for x in extracted_names]
+                    match, score = process.extractOne(mumble_name, choices)
+                    if score > 85: # High confidence verification
+                        # Find the team
+                        for text, team, idx in extracted_names:
+                            if text == match:
+                                logger.info(f"Matched MumbleLink name '{mumble_name}' to OCR '{text}' on {team} team (score: {score})")
+                                return mumble_name, team, 1.0
 
+            # Fallback to Bold Text Detection if MumbleLink failed or couldn't be matched
             # Detect bold text
             bold_index, confidence = self.ocr.detect_bold_text(name_regions)
 
@@ -184,7 +226,8 @@ class MatchProcessor:
         self,
         start_path: str,
         end_path: str,
-        detected_user: Optional[Tuple[str, str]] = None
+        detected_user: Optional[Tuple[str, str]] = None,
+        map_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Main entry point: Extract all match data from screenshots.
@@ -193,6 +236,7 @@ class MatchProcessor:
             start_path: Path to match start screenshot
             end_path: Path to match end screenshot
             detected_user: Optional (char_name, team) from F8 detection
+            map_name: Optional map name override
 
         Returns:
             Dict with extracted data or error information
@@ -237,12 +281,22 @@ class MatchProcessor:
                 red_score, blue_score, players_data, user_char_name
             )
 
+            # Get Map Name from MumbleLink if not provided and active
+            if not map_name:
+                self.mumble_link.read()
+                if self.mumble_link.is_active:
+                    map_name = self.mumble_link.get_map_name()
+            
+            if not map_name:
+                map_name = "Unknown"
+
             return {
                 'success': True,
                 'red_score': red_score if red_score is not None else 0,
                 'blue_score': blue_score if blue_score is not None else 0,
                 'user_character': user_char_name if user_char_name else 'Unknown',
                 'user_team': user_team if user_team else 'red',
+                'map_name': map_name,
                 'players': players_data,
                 'validation_errors': errors,
                 'is_valid': is_valid,

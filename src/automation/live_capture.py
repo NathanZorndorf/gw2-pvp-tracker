@@ -17,7 +17,12 @@ from datetime import datetime
 import tkinter as tk
 from typing import Optional, List
 
-sys.path.insert(0, str(Path(__file__).parent / "src"))
+# Add src to path so we can import modules
+# File is at src/automation/live_capture.py
+# We want to add 'src' to path.
+# Path(__file__).parent = src/automation
+# Path(__file__).parent.parent = src
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from vision.capture import ScreenCapture
 from config import Config
@@ -75,6 +80,7 @@ class LiveCapture:
 
         # Pending overlay action (for thread-safe GUI updates)
         self._pending_overlay_action = None
+        self._pending_action = None
 
         print("\n" + "=" * 70)
         print("  GW2 PvP Tracker - Live Capture Mode")
@@ -163,15 +169,8 @@ class LiveCapture:
                 seconds = int(duration.total_seconds() % 60)
                 print(f"  -> Match duration: {minutes}m {seconds}s")
 
-            # Auto-process and log match
-            print("\n  -> Processing match data (OCR + logging)...")
-            self._auto_process_match()
-
-            # Reset for next match
-            self.match_start_time = None
-            self.match_screenshots = {"start": None, "end": None}
-            self.detected_user_character = None
-            self.detected_players = []
+            # Queue processing in main thread
+            self._pending_action = 'process_match_end'
 
         except Exception as e:
             logger.error(f"Failed to capture match end: {e}")
@@ -267,13 +266,15 @@ class LiveCapture:
             match_data = processor.process_match(
                 self.match_screenshots['start'],
                 self.match_screenshots['end'],
-                detected_user=self.detected_user_character
+                detected_user=self.detected_user_character,
+                map_name=self.selected_map
             )
 
             # Display extraction results
             if match_data['success']:
                 print(f"  -> Scores: Red {match_data['red_score']} - Blue {match_data['blue_score']}")
                 print(f"  -> Your character: {match_data['user_character']} ({match_data['user_team'].upper()} team)")
+                print(f"  -> Map: {match_data.get('map_name', 'Unknown')}")
                 print(f"  -> Extracted {len(match_data['players'])} players")
 
                 if match_data['validation_errors']:
@@ -287,7 +288,7 @@ class LiveCapture:
                 match_data,
                 self.match_screenshots['start'],
                 self.match_screenshots['end'],
-                map_name=self.selected_map
+                map_name=match_data.get('map_name')
             )
 
             # Display result
@@ -330,7 +331,7 @@ class LiveCapture:
                 print("  2. Right-click on your terminal (Command Prompt or PowerShell)")
                 print("  3. Select 'Run as administrator'")
                 print("  4. Navigate back to this folder")
-                print("  5. Run: python live_capture.py\n")
+                print("  5. Run: python src/automation/live_capture.py\n")
                 raise
 
             # Keep running until ESC is pressed
@@ -338,6 +339,20 @@ class LiveCapture:
             while self.running:
                 # Process pending overlay actions (thread-safe GUI updates)
                 self._process_pending_overlay_action()
+
+                # Process main workflow actions
+                if self._pending_action == 'process_match_end':
+                    self._pending_action = None
+                    
+                    # Process directly without asking for map
+                    print("\n  -> Processing match data (OCR + logging)...")
+                    self._auto_process_match()
+
+                    # Reset
+                    self.match_start_time = None
+                    self.match_screenshots = {"start": None, "end": None}
+                    self.detected_user_character = None
+                    self.detected_players = []
 
                 # Update tkinter
                 try:

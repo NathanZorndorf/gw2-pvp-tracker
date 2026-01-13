@@ -108,9 +108,14 @@ class WinRatePanel(QWidget):
         divider = QWidget()
         divider.setFixedWidth(2)
         divider.setStyleSheet(f"background:{COLORS['divider']}; margin-left:12px; margin-right:12px;")
-        self.teams_layout.addLayout(self.red_column)
         self.teams_layout.addWidget(divider)
         self.teams_layout.addLayout(self.blue_column)
+
+        # Legend (Added once)
+        self.legend = QLabel("Stars = Win Rate | (n) = Games Seen")
+        self.legend.setAlignment(Qt.AlignCenter)
+        self.legend.setStyleSheet(f"color:{COLORS['text_secondary']}; margin-top:10px; font-size:11px;")
+        self.layout.addWidget(self.legend)
 
         self.setStyleSheet(f"background: {COLORS['bg_main']};")
 
@@ -145,12 +150,6 @@ class WinRatePanel(QWidget):
         for p in blue_players:
             card = PlayerCardWidget(p.get('name', 'Unknown'), 'blue', p.get('win_rate', 0.0), p.get('total_matches', 0), p.get('is_user', False))
             self.blue_column.addWidget(card)
-
-        # Legend
-        legend = QLabel("Stars = Win Rate | (n) = Games Seen")
-        legend.setAlignment(Qt.AlignCenter)
-        legend.setStyleSheet(f"color:{COLORS['text_secondary']}; margin-top:10px; font-size:11px;")
-        self.layout.addWidget(legend)
 
 
 class RankingsWidget(QWidget):

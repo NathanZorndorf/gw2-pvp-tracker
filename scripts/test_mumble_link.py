@@ -9,7 +9,16 @@ from src.integration.mumble_link import MumbleLink, PVP_MAPS
 
 def main():
     print("Initializing MumbleLink reader...")
-    ml = MumbleLink()
+    # Try to find the CSV file relative to this script
+    csv_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'map_ids.csv')
+    csv_path = os.path.abspath(csv_path)
+    
+    if os.path.exists(csv_path):
+        print(f"Loading map names from {csv_path}")
+        ml = MumbleLink(map_csv_path=csv_path)
+    else:
+        print("Map CSV not found, using defaults.")
+        ml = MumbleLink()
 
     if not ml.is_active:
         print("Could not connect to MumbleLink. Make sure Guild Wars 2 is running.")
@@ -30,7 +39,7 @@ def main():
                 identity = ml.get_identity()
                 player_name = identity.get("name", "Unknown")
                 map_id = identity.get("map_id", 0)
-                map_name = PVP_MAPS.get(map_id, f"ID: {map_id}")
+                map_name = ml.get_map_name()
                 
                 # Context data
                 ctx = ml.context_obj
