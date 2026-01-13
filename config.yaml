@@ -68,72 +68,71 @@ ui:
 
 # Roster Region Coordinates (Based on 3840x2160 4K full screen images)
 # NOTE: These are for 4K resolution. For 1080p, divide all values by 2.
-# Ranked and Unranked Arena have different scoreboard layouts - auto-detected at runtime.
+# Configuration derived from source CSVs (unranked-start-bounding-boxes.csv, ranked-start-bounding-boxes.csv, etc.)
 roster_regions:
   # Default arena type to use if auto-detection fails
   default_arena: "unranked"
 
-  # Unranked Arena bounding boxes (from unranked-gameplay-1 samples)
+  # Unranked Arena bounding boxes (from unranked-start-bounding-boxes.csv)
   unranked:
     red_team_names:
-      x_start: 1194
-      x_end: 1807       # 1196 + 611 from CSV
-      y_start: 707
-      row_height: 60
+      x_start: 1200
+      x_end: 1803
+      y_start: 712
+      row_height: 58
       num_players: 5
 
     blue_team_names:
-      x_start: 2034
-      x_end: 2660       # 2039 + 621 from CSV
-      y_start: 711
-      row_height: 60
+      x_start: 2038
+      x_end: 2656
+      y_start: 710
+      row_height: 58
       num_players: 5
 
     red_score_box:
-      x: 1944
+      x: 1702
       y: 588
-      width: 248
-      height: 96
+      width: 207
+      height: 109
 
     blue_score_box:
-      x: 1678
+      x: 1939
       y: 588
-      width: 246
-      height: 98
+      width: 211
+      height: 109
 
     arena_type_box:
-      x: 1239
-      y: 440
-      width: 217
-      height: 76
+      x: 1240
+      y: 443
+      width: 216
+      height: 67
 
-    # Icon regions for profession detection (estimated ~25px lower than ranked)
     icon_regions:
       red_team:
-        x: 1124
-        y: 705      # ~25px lower than ranked (680 + 25)
-        width: 74
-        height: 290
+        x: 1125
+        y: 711
+        width: 73
+        height: 291
       blue_team:
-        x: 2653
-        y: 705      # ~25px lower than ranked
-        width: 71
-        height: 292
+        x: 2654
+        y: 710
+        width: 66
+        height: 291
 
-  # Ranked Arena bounding boxes (from ranked-gameplay-1 samples)
+  # Ranked Arena bounding boxes (from ranked-start-bounding-boxes.csv / ranked-end-bounding-boxes.csv)
   ranked:
     red_team_names:
       x_start: 1192
-      x_end: 1799       # ~1192 + 607 from CSV
-      y_start: 682      # ~25 pixels higher than unranked
-      row_height: 58    # slightly tighter spacing
+      x_end: 1799
+      y_start: 682
+      row_height: 58
       num_players: 5
 
     blue_team_names:
-      x_start: 2043
-      x_end: 2660       # 2043 + 615 from CSV
-      y_start: 678      # ~33 pixels higher than unranked
-      row_height: 60
+      x_start: 2055
+      x_end: 2670
+      y_start: 678
+      row_height: 58
       num_players: 5
 
     red_score_box:
@@ -154,7 +153,6 @@ roster_regions:
       width: 197
       height: 70
 
-    # Icon regions for profession detection (from ranked-icon-bounding-boxes-rectangle.csv)
     icon_regions:
       red_team:
         x: 1124

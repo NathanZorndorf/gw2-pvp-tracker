@@ -1,0 +1,2 @@
+label_name,bbox_x,bbox_y,bbox_width,bbox_height,image_name,image_width,image_height,source_file
+Arena Type,1240,408,205,67,match_start_20260109_201737_full.png,3840,2160,unranked-start-bounding-boxes.csv

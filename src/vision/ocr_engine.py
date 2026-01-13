@@ -547,45 +547,57 @@ class OCREngine:
 
     def _calculate_bold_score(self, region: np.ndarray) -> float:
         """
-        Calculate bold score by detecting cyan-colored text (user highlight in GW2).
+        Calculate bold score by detecting gold/bright text (user highlight).
 
-        In GW2, the user's name is displayed in cyan/teal color while other
-        players have white/gray text. This method detects that cyan highlight.
+        In GW2, the user's name is displayed in gold/bright white color 
+        while other players have gray text. This method detects those highlights.
 
         Args:
             region: Image region containing text
 
         Returns:
-            Score (0.0-1.0, higher = more likely user's name)
+            Score (higher = more likely user's name)
         """
         if len(region.shape) != 3:
-            # Grayscale image, can't detect color
             return 0.0
 
         # Convert to HSV for color detection
         hsv = cv2.cvtColor(region, cv2.COLOR_BGR2HSV)
 
-        # Cyan/teal color range in HSV
-        # Cyan is around hue 80-100 in OpenCV's 0-180 scale
-        # The user's name appears as a light cyan/turquoise
-        cyan_lower = np.array([80, 30, 100])   # Lower bound (hue, sat, val)
-        cyan_upper = np.array([110, 255, 255])  # Upper bound
+        # 1. Gold/Yellow Detection
+        # Hue: 20-35 (Yellow/Gold)
+        # Saturation: > 50 (Not white)
+        # Value: > 150 (Bright)
+        gold_lower = np.array([20, 50, 150])
+        gold_upper = np.array([35, 255, 255])
+        gold_mask = cv2.inRange(hsv, gold_lower, gold_upper)
+        gold_ratio = np.sum(gold_mask > 0) / gold_mask.size
 
-        # Create mask for cyan pixels
+        # 2. Brightness/Whiteness Detection
+        # User name is significantly brighter than others (max V ~255 vs ~187)
+        _, _, v = cv2.split(hsv)
+        max_v = np.max(v)
+        
+        # Legacy: Cyan check (kept with low weight just in case)
+        cyan_lower = np.array([80, 30, 100])
+        cyan_upper = np.array([110, 255, 255])
         cyan_mask = cv2.inRange(hsv, cyan_lower, cyan_upper)
         cyan_ratio = np.sum(cyan_mask > 0) / cyan_mask.size
+        
+        # Scoring
+        brightness_score = 0.0
+        if max_v > 240:
+            brightness_score = 5.0  # Strong signal for bright highlight
+        elif max_v > 200:
+            brightness_score = 0.5  # Weak signal
+            
+        gold_score = gold_ratio * 10  # Scale up gold presence
+        
+        # Combined score: Favor Gold or High Brightness
+        final_score = max(gold_score, brightness_score, cyan_ratio * 2)
 
-        # Also check for light blue range (sometimes appears more blue-ish)
-        blue_lower = np.array([90, 20, 120])
-        blue_upper = np.array([120, 200, 255])
-        blue_mask = cv2.inRange(hsv, blue_lower, blue_upper)
-        blue_ratio = np.sum(blue_mask > 0) / blue_mask.size
-
-        # Combined cyan/blue score
-        color_score = max(cyan_ratio, blue_ratio) * 10  # Scale up for visibility
-
-        logger.debug(f"Bold score: {color_score:.4f} (cyan={cyan_ratio:.4f}, blue={blue_ratio:.4f})")
-        return color_score
+        logger.debug(f"Highlight score: {final_score:.4f} (gold={gold_ratio:.4f}, max_v={max_v}, cyan={cyan_ratio:.4f})")
+        return final_score
 
     def detect_bold_text(
         self,
@@ -624,7 +636,8 @@ class OCREngine:
     def detect_arena_type(
         self,
         image: np.ndarray,
-        roster_regions: dict
+        roster_regions: dict,
+        detection_region: Optional[dict] = None
     ) -> Tuple[str, float]:
         """
         Detect arena type (ranked vs unranked) by testing OCR with both region sets.
@@ -636,12 +649,35 @@ class OCREngine:
         Args:
             image: Full screenshot image
             roster_regions: Config dict containing 'ranked' and 'unranked' region sets
+            detection_region: Optional region dict {'x', 'y', 'width', 'height'} to OCR first
 
         Returns:
             Tuple of (arena_type, confidence)
             arena_type: "ranked" or "unranked"
             confidence: Score difference (higher = more confident)
         """
+        # 1. Try explicit detection region if provided
+        if detection_region:
+            try:
+                x, y = detection_region['x'], detection_region['y']
+                w, h = detection_region['width'], detection_region['height']
+                
+                # Check bounds
+                if y + h <= image.shape[0] and x + w <= image.shape[1]:
+                    roi = image[y:y+h, x:x+w]
+                    # Use Tesseract normally or specific settings if needed
+                    # We don't use strict whitelist here as we look for "Ranked Arena" or "Unranked Arena"
+                    text = self.extract_text(roi, preprocess=True).lower()
+                    logger.info(f"Arena detection ROI text: '{text}'")
+                    
+                    if 'unranked' in text:
+                        return 'unranked', 1.0
+                    if 'ranked' in text: # "Ranked Arena" or just "Ranked"
+                        return 'ranked', 1.0
+            except Exception as e:
+                logger.warning(f"Failed to use detection region: {e}")
+
+        # 2. Fallback to legacy heuristic method
         def _run_pass(preprocess_flag: bool) -> dict:
             scores = {}
             for arena_type in ['ranked', 'unranked']:

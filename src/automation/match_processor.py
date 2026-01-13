@@ -89,7 +89,9 @@ class MatchProcessor:
             Detected arena type ('ranked' or 'unranked')
         """
         regions_config = self.config.get('roster_regions')
-        arena_type, confidence = self.ocr.detect_arena_type(image, regions_config)
+        detection_region = self.config.get('arena_type_detection')
+        
+        arena_type, confidence = self.ocr.detect_arena_type(image, regions_config, detection_region)
         self._current_arena_type = arena_type
         logger.info(f"Arena type set to: {arena_type} (confidence: {confidence:.2f})")
         return arena_type

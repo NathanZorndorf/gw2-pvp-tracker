@@ -5,7 +5,17 @@
       "Bash(.venvScriptsactivate)",
       "Bash(pytest:*)",
       "Bash(C:/Users/nzorn/Documents/gw2-pvp-tracker/venv/Scripts/python.exe -m pytest:*)",
-      "Bash(C:/Users/nzorn/Documents/gw2-pvp-tracker/venv/Scripts/python.exe:*)"
+      "Bash(C:/Users/nzorn/Documents/gw2-pvp-tracker/venv/Scripts/python.exe:*)",
+      "Bash(if [ -d \"C:\\\\Users\\\\nzorn\\\\Documents\\\\gw2-pvp-tracker\\\\data\\\\samples\\\\ranked-2\" ])",
+      "Bash(then ls \"C:\\\\Users\\\\nzorn\\\\Documents\\\\gw2-pvp-tracker\\\\data\\\\samples\\\\ranked-2\")",
+      "Bash(else echo \"ranked-2 does not exist\")",
+      "Bash(fi)",
+      "Bash(python scripts/update_ground_truth_professions.py:*)",
+      "Bash",
+      "Bash(python*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python process_icons.py:*)",
+      "Bash(tee:*)"
     ],
     "deny": [],
     "ask": []

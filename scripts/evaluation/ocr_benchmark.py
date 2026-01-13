@@ -495,10 +495,17 @@ class OCRBenchmark:
             # Test name extraction (only if team data exists in ground truth)
             if 'red_team' in sample and 'blue_team' in sample:
                 name_regions = self._get_name_regions(image)
-                expected_names = sample['red_team'] + sample['blue_team']
+                expected_items = sample['red_team'] + sample['blue_team']
 
+                for (region, team, idx), expected_item in zip(name_regions, expected_items):
+                    # Handle expected_item being a dict (new format), string (old format), or None
+                    if expected_item is None:
+                         expected_name = ""
+                    elif isinstance(expected_item, dict):
+                         expected_name = expected_item.get('name', '') or ""
+                    else:
+                         expected_name = str(expected_item)
 
-                for (region, team, idx), expected_name in zip(name_regions, expected_names):
                     # Save name region for debugging
                     self._save_region_if_debug(region, f"{sample['filename']}_{team}_name_{idx}.png")
 

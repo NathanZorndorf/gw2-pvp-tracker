@@ -1,0 +1,7 @@
+label_name,bbox_x,bbox_y,bbox_width,bbox_height,image_name,image_width,image_height,source_file
+Red Icons,1125,676,73,291,match_start_20260109_201737_full.png,3840,2160,unranked-start-bounding-boxes.csv
+Blue Icons,2654,675,66,291,match_start_20260109_201737_full.png,3840,2160,unranked-start-bounding-boxes.csv
+Red Names,1200,677,603,290,match_start_20260109_201737_full.png,3840,2160,unranked-start-bounding-boxes.csv
+Blue Names,2038,675,618,290,match_start_20260109_201737_full.png,3840,2160,unranked-start-bounding-boxes.csv
+Red Score,1702,553,207,109,match_start_20260109_201737_full.png,3840,2160,unranked-start-bounding-boxes.csv
+Blue Score,1939,553,211,109,match_start_20260109_201737_full.png,3840,2160,unranked-start-bounding-boxes.csv
