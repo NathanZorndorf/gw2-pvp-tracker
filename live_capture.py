@@ -3,7 +3,6 @@ Live screenshot capture for GW2 PvP matches.
 
 Press F8 at match start to capture beginning screenshot.
 Press F9 at match end to capture ending screenshot.
-Press ESC to exit the program.
 
 The app will save timestamped screenshots to the screenshots/ folder.
 """
@@ -83,7 +82,6 @@ class LiveCapture:
         print("\nHotkeys:")
         print("  F8  - Capture match START (press when scoreboard is visible)")
         print("  F9  - Capture match END (press when match is over)")
-        print("  ESC - Exit program")
         print("\nTips:")
         print("  - Open the scoreboard (default: Tab key) before pressing F8/F9")
         print("  - Screenshots are saved to: screenshots/")
@@ -96,7 +94,16 @@ class LiveCapture:
     def capture_match_start(self):
         """Capture match start screenshot."""
         try:
-            print(f"\n[{datetime.now().strftime('%H:%M:%S')}] F8 pressed - Capturing match START...")
+            # Check for retake
+            if self.match_screenshots["start"] and os.path.exists(self.match_screenshots["start"]):
+                print(f"\n[{datetime.now().strftime('%H:%M:%S')}] F8 pressed again - RETAKING match START...")
+                try:
+                    os.remove(self.match_screenshots["start"])
+                    print(f"  -> Deleted previous capture: {os.path.basename(self.match_screenshots['start'])}")
+                except OSError as e:
+                    print(f"  -> WARNING: Could not delete previous capture: {e}")
+            else:
+                print(f"\n[{datetime.now().strftime('%H:%M:%S')}] F8 pressed - Capturing match START...")
 
             # Small delay to ensure scoreboard is fully rendered
             time.sleep(0.3)
@@ -313,7 +320,7 @@ class LiveCapture:
             try:
                 keyboard.add_hotkey('f8', self.capture_match_start)
                 keyboard.add_hotkey('f9', self.capture_match_end)
-                keyboard.add_hotkey('esc', self.exit_program)
+                # keyboard.add_hotkey('esc', self.exit_program)  # Disabled to prevent accidental exit
                 print("Hotkeys registered successfully!\n")
             except Exception as e:
                 print("\nERROR: Could not register hotkeys!")
