@@ -10,19 +10,20 @@ sys.path.insert(0, str(project_root))
 
 from scripts.evaluation.ocr_benchmark import OCRBenchmark, EasyOCRMethod
 
-
-SAMPLES_DIR = Path("data/samples/unranked-1")
+SAMPLES_ROOT = Path("data/samples")
 CONFIG_PATH = Path("config.yaml")
 
+UNRANKED_FOLDERS = sorted([
+    d for d in SAMPLES_ROOT.iterdir() 
+    if d.is_dir() and d.name.startswith("unranked") and (d / "ground_truth.yaml").exists()
+])
 
-@pytest.mark.skipif(not SAMPLES_DIR.exists() or not (SAMPLES_DIR / "ground_truth.yaml").exists(),
-                    reason="Unranked sample ground truth missing")
-def test_easyocr_recognizes_all_names(tmp_path):
+@pytest.mark.parametrize("folder", UNRANKED_FOLDERS, ids=lambda d: d.name)
+def test_easyocr_recognizes_all_names_unranked(folder, stats_recorder):
     """Run EasyOCR on the unranked sample folder and assert all names are recognized exactly."""
-    # Load config to get fuzzy threshold (but we enforce exact matching here)
-    with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-        cfg = yaml.safe_load(f)
-
+    if not (folder / "ground_truth.yaml").exists():
+        pytest.skip("Sample ground truth missing")
+        
     # Skip test if EasyOCR not installed in the environment
     try:
         import easyocr  # noqa: F401
@@ -30,7 +31,7 @@ def test_easyocr_recognizes_all_names(tmp_path):
         pytest.skip("EasyOCR not installed in test environment")
 
     # Use arena_type='unranked' to ensure correct bounding boxes
-    bench = OCRBenchmark(str(SAMPLES_DIR), str(CONFIG_PATH), arena_type='unranked')
+    bench = OCRBenchmark(str(folder), str(CONFIG_PATH), arena_type='unranked')
 
     # Use EasyOCR with additional languages to improve accented-character recognition
     method = EasyOCRMethod(use_gpu=False, resize_factor=2.0, languages=['en', 'es', 'fr', 'pt'])
@@ -49,7 +50,7 @@ def test_easyocr_recognizes_all_names(tmp_path):
     assert easy_results is not None, "EasyOCR result not found"
 
     # All names must be correct — print formatted per-name diagnostics
-    print('\nDetailed name results:')
+    print(f'\nDetailed name results for {folder.name}:')
     for nr in easy_results.name_results:
         # nr is a dict with keys: file, team, index, expected, extracted, correct, similarity
         expected = nr.get('expected')
@@ -58,5 +59,15 @@ def test_easyocr_recognizes_all_names(tmp_path):
         correct = nr.get('correct')
         status = 'OK' if correct else f"FAIL ({similarity*100:.0f}% sim)"
         print(f"  [{status}] {nr.get('file')} {nr.get('team')}[{nr.get('index')}]: expected='{expected}', got='{extracted}'")
+
+    # Record stats
+    total = len(easy_results.name_results)
+    correct_count = sum(1 for nr in easy_results.name_results if nr.get('correct'))
+    stats_recorder.append({
+        'category': 'Name Recognition',
+        'correct': correct_count,
+        'total': total,
+        'test': f'test_easyocr_recognizes_all_names_unranked[{folder.name}]'
+    })
 
     assert easy_results.name_accuracy == 1.0, f"Name accuracy not 100%: {easy_results.name_accuracy}"

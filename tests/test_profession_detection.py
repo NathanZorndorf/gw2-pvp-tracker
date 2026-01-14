@@ -15,14 +15,12 @@ from vision.profession_detector import ProfessionDetector
 from config import Config
 
 
-# Test against all ranked sample folders
-SAMPLE_FOLDERS = [
-    Path("data/samples/ranked-1"),
-    Path("data/samples/ranked-3"),
-    Path("data/samples/ranked-4"),
-    Path("data/samples/ranked-5"),
-    Path("data/samples/ranked-6"),
-]
+# Test against all sample folders with ground truth
+SAMPLES_ROOT = Path("data/samples")
+SAMPLE_FOLDERS = sorted([
+    d for d in SAMPLES_ROOT.iterdir() 
+    if d.is_dir() and (d / "ground_truth.yaml").exists()
+])
 
 
 @pytest.fixture
@@ -129,6 +127,9 @@ def test_profession_detection_per_folder(profession_detector, folder):
     detected_professions = [r['profession'] for r in results_sorted]
 
     # Calculate accuracy
+    if not expected_professions:
+        pytest.skip(f"No ground truth professions found in {folder.name}")
+
     correct = sum(1 for exp, det in zip(expected_professions, detected_professions) if exp == det)
     accuracy = correct / len(expected_professions)
 
@@ -147,7 +148,7 @@ def test_profession_detection_per_folder(profession_detector, folder):
     assert accuracy >= 0.70, f"Accuracy {accuracy*100:.1f}% below 70% threshold in {folder.name}"
 
 
-def test_profession_detection_overall_accuracy(profession_detector):
+def test_profession_detection_overall_accuracy(profession_detector, stats_recorder):
     """Test overall profession detection accuracy across all folders."""
     total_correct = 0
     total_tested = 0
@@ -179,8 +180,11 @@ def test_profession_detection_overall_accuracy(profession_detector):
         if 'NEEDS_MANUAL' in all_profs:
             continue
 
+        # Determine arena type
+        arena_type = 'ranked' if folder.name.startswith('ranked') else 'unranked'
+
         # Detect professions
-        results = profession_detector.detect_professions(image, arena_type='ranked')
+        results = profession_detector.detect_professions(image, arena_type=arena_type)
 
         if len(results) != 10:
             continue
@@ -201,6 +205,15 @@ def test_profession_detection_overall_accuracy(profession_detector):
     # Calculate overall accuracy
     if total_tested > 0:
         overall_accuracy = total_correct / total_tested
+        
+        # Record stats
+        stats_recorder.append({
+            'category': 'Icon Matching',
+            'correct': total_correct,
+            'total': total_tested,
+            'test': 'test_profession_detection_overall_accuracy'
+        })
+        
         print(f"\nOverall Profession Detection Accuracy: {overall_accuracy*100:.1f}% ({total_correct}/{total_tested})")
 
         # Assert minimum 85% overall accuracy (92% achievable with grid-search tuning)
@@ -221,7 +234,11 @@ def test_profession_detection_confidence_scores(profession_detector):
         pytest.skip("No match_start screenshot")
 
     image = cv2.imread(str(start_images[0]))
-    results = profession_detector.detect_professions(image, arena_type='ranked')
+    
+    # Determine arena type
+    arena_type = 'ranked' if folder.name.startswith('ranked') else 'unranked'
+    
+    results = profession_detector.detect_professions(image, arena_type=arena_type)
 
     assert len(results) > 0, "No professions detected"
 

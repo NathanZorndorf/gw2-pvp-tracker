@@ -10,34 +10,35 @@ sys.path.insert(0, str(project_root))
 
 from scripts.evaluation.ocr_benchmark import OCRBenchmark, EasyOCRMethod
 
-
-SAMPLES_DIR = Path("data/samples/ranked-1")
+SAMPLES_ROOT = Path("data/samples")
 CONFIG_PATH = Path("config.yaml")
 
+RANKED_FOLDERS = sorted([
+    d for d in SAMPLES_ROOT.iterdir() 
+    if d.is_dir() and d.name.startswith("ranked") and (d / "ground_truth.yaml").exists()
+])
 
-@pytest.fixture
-def ocr_benchmark():
-    """Create an OCR benchmark instance for ranked gameplay samples."""
-    if not (SAMPLES_DIR / "ground_truth.yaml").exists():
+def create_benchmark(folder):
+    if not (folder / "ground_truth.yaml").exists():
         pytest.skip("Ranked gameplay ground truth missing")
-
+    
     try:
         import easyocr  # noqa: F401
     except ImportError:
         pytest.skip("EasyOCR not installed in test environment")
 
     # Use arena_type='ranked' to ensure correct bounding boxes
-    bench = OCRBenchmark(str(SAMPLES_DIR), str(CONFIG_PATH), arena_type='ranked')
+    bench = OCRBenchmark(str(folder), str(CONFIG_PATH), arena_type='ranked')
     # Use EasyOCR with additional languages for accented characters
     method = EasyOCRMethod(use_gpu=False, resize_factor=2.0, languages=['en', 'es', 'fr', 'pt', 'de'])
     bench.add_method(method)
     return bench
 
-
-@pytest.mark.skipif(not SAMPLES_DIR.exists(), reason="Ranked samples directory missing")
-def test_easyocr_recognizes_ranked_start_names(ocr_benchmark):
+@pytest.mark.parametrize("folder", RANKED_FOLDERS, ids=lambda d: d.name)
+def test_easyocr_recognizes_ranked_start_names(folder, stats_recorder):
     """Test that EasyOCR correctly extracts all player names from start frame."""
-    results = ocr_benchmark.run_all()
+    benchmark = create_benchmark(folder)
+    results = benchmark.run_all()
     assert results, "No benchmark results produced"
 
     # Find EasyOCR result
@@ -55,8 +56,12 @@ def test_easyocr_recognizes_ranked_start_names(ocr_benchmark):
         if 'start' in nr.get('file', '').lower()
     ]
 
+    if not start_name_results:
+        # Some samples might not have a start screen (only end)
+        return
+
     # Print detailed diagnostics
-    print('\nDetailed name results (start frame):')
+    print(f'\nDetailed name results (start frame) for {folder.name}:')
     for nr in start_name_results:
         expected = nr.get('expected')
         extracted = nr.get('extracted')
@@ -65,17 +70,26 @@ def test_easyocr_recognizes_ranked_start_names(ocr_benchmark):
         status = 'OK' if correct else f"FAIL ({similarity*100:.0f}% sim)"
         print(f"  [{status}] {nr.get('team')}[{nr.get('index')}]: expected='{expected}', got='{extracted}'")
 
+    # Stats recording
+    total = len(start_name_results)
+    correct_count = sum(1 for nr in start_name_results if nr.get('correct'))
+    stats_recorder.append({
+        'category': 'Name Recognition',
+        'correct': correct_count,
+        'total': total,
+        'test': f'test_easyocr_recognizes_ranked_start_names[{folder.name}]'
+    })
+
     # Calculate accuracy for start frame only
     if start_name_results:
-        correct_count = sum(1 for nr in start_name_results if nr.get('correct'))
-        accuracy = correct_count / len(start_name_results)
+        accuracy = correct_count / total
         assert accuracy == 1.0, f"Start frame name accuracy not 100%: {accuracy*100:.1f}%"
 
-
-@pytest.mark.skipif(not SAMPLES_DIR.exists(), reason="Ranked samples directory missing")
-def test_easyocr_extracts_ranked_scores(ocr_benchmark):
+@pytest.mark.parametrize("folder", RANKED_FOLDERS, ids=lambda d: d.name)
+def test_easyocr_extracts_ranked_scores(folder, stats_recorder):
     """Test that EasyOCR correctly extracts scores from end frame."""
-    results = ocr_benchmark.run_all()
+    benchmark = create_benchmark(folder)
+    results = benchmark.run_all()
     assert results, "No benchmark results produced"
 
     # Find EasyOCR result
@@ -92,15 +106,29 @@ def test_easyocr_extracts_ranked_scores(ocr_benchmark):
         sr for sr in easy_results.score_results
         if 'end' in sr.get('file', '').lower()
     ]
+    
+    if not end_score_results:
+        # Some samples might not have an end screen
+        return
 
     # Print detailed diagnostics
-    print('\nDetailed score results (end frame):')
+    print(f'\nDetailed score results (end frame) for {folder.name}:')
     for sr in end_score_results:
         expected = sr.get('expected')
         extracted = sr.get('extracted')
         correct = sr.get('correct')
         status = 'OK' if correct else 'FAIL'
         print(f"  [{status}] {sr.get('team')}: expected={expected}, got={extracted}")
+
+    # Stats recording
+    total = len(end_score_results)
+    correct_count = sum(1 for sr in end_score_results if sr.get('correct'))
+    stats_recorder.append({
+        'category': 'Score Identification',
+        'correct': correct_count,
+        'total': total,
+        'test': f'test_easyocr_extracts_ranked_scores[{folder.name}]'
+    })
 
     # Verify scores
     for sr in end_score_results:

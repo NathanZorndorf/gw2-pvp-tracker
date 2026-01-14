@@ -56,8 +56,14 @@ def processor():
     """Initialize MatchProcessor for each test to avoid state leakage."""
     config = Config()
     # Use real DB for read access (name matching etc)
-    db = Database("data/pvp_tracker.db") 
-    return MatchProcessor(config, db)
+    db = Database("data/pvp_tracker.db")
+    processor = MatchProcessor(config, db)
+    
+    yield processor
+    
+    # Clean up database connection
+    db.close()
+
 
 @pytest.mark.parametrize("sample", SAMPLES, ids=[s['id'] for s in SAMPLES])
 def test_user_detection(processor, sample):
