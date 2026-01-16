@@ -57,7 +57,5 @@ htmlcov/
 **/debug/*
 
 
-*.png
-screenshots/
-data/samples/
 scripts/processing-pipeline/*.csv
+scripts/processing-pipeline/**/*.png
