@@ -26,6 +26,12 @@ try:
 except ImportError:
     TORCH_AVAILABLE = False
 
+try:
+    import yaml
+    YAML_AVAILABLE = True
+except ImportError:
+    YAML_AVAILABLE = False
+
 # Take a set of "target" icon samples
 # take a set of "Reference" icon samples
 # Run them through a pre-processing pipeline to normalize size, color inversion, etc.
@@ -570,30 +576,84 @@ def visualize_match(target_name, target_img, best_match_name, ref_img, algorithm
     cv2.imwrite(out_path, canvas)
 
 
+def load_ground_truth_from_yamls(samples_dir):
+    """Load ground truth data from YAML files in samples directory"""
+    ground_truth = {}
+    if not YAML_AVAILABLE:
+        print("PyYAML not available, cannot load ground truth from YAMLs")
+        return ground_truth
+
+    print(f"Loading ground truth from {samples_dir}...")
+    
+    for sample_folder in os.listdir(samples_dir):
+        folder_path = os.path.join(samples_dir, sample_folder)
+        if not os.path.isdir(folder_path):
+            continue
+            
+        yaml_path = os.path.join(folder_path, "ground_truth.yaml")
+        if not os.path.exists(yaml_path):
+            continue
+            
+        try:
+            with open(yaml_path, 'r') as f:
+                data = yaml.safe_load(f)
+                
+            # Find the match_start sample
+            match_start_sample = None
+            if 'samples' in data:
+                for sample in data['samples']:
+                    if 'match_start' in sample['filename']:
+                        match_start_sample = sample
+                        break
+            
+            if match_start_sample:
+                image_name = match_start_sample['filename']
+                image_base = os.path.splitext(image_name)[0]
+                
+                # Helper to map teams
+                def map_team(team_list, team_name):
+                    if not team_list: return
+                    for i, player in enumerate(team_list):
+                        profession = player.get('profession')
+                        if profession:
+                            # Construct filename key
+                            # Format: {sample_folder}_{team}_Player_{player_num}___Class_{image_base}.png
+                            key = f"{sample_folder}_{team_name}_Player_{i+1}___Class_{image_base}.png"
+                            ground_truth[key] = profession
+                
+                map_team(match_start_sample.get('red_team'), "Red")
+                map_team(match_start_sample.get('blue_team'), "Blue")
+                
+        except Exception as e:
+            print(f"Error reading {yaml_path}: {e}")
+            
+    print(f"Loaded {len(ground_truth)} ground truth entries")
+    return ground_truth
+
+
 def perform_grid_search():
     """Perform grid search over template matching hyperparameters"""
     print("Starting grid search for template matching hyperparameters...")
     
     # Load images
     target_images_orig = {}
-    for filename in os.listdir("../../data/target-icons"):
-        if filename.endswith('.png'):
-            path = os.path.join("../../data/target-icons", filename)
-            target_images_orig[filename] = cv2.imread(path)
+    target_icons_dir = os.path.join('scripts', 'processing-pipeline', 'target-icons')
+    if os.path.exists(target_icons_dir):
+        for filename in os.listdir(target_icons_dir):
+            if filename.endswith('.png'):
+                path = os.path.join(target_icons_dir, filename)
+                target_images_orig[filename] = cv2.imread(path)
 
     ref_images_orig = {}
-    for filename in os.listdir("../../data/reference-icons/icons-white"):
-        if filename.endswith('.png'):
-            path = os.path.join("../../data/reference-icons/icons-white", filename)
-            ref_images_orig[filename] = cv2.imread(path)
+    ref_icons_dir = os.path.join("data", "reference-icons", "icons-white") 
+    if os.path.exists(ref_icons_dir):
+        for filename in os.listdir(ref_icons_dir):
+            if filename.endswith('.png'):
+                path = os.path.join(ref_icons_dir, filename)
+                ref_images_orig[filename] = cv2.imread(path)
 
     # Load ground truth
-    ground_truth = {}
-    mappings_file = "../../scripts/processing-pipeline/target-icons/mappings.csv"
-    with open(mappings_file, 'r') as csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
-            ground_truth[row['file_name']] = row['mapping_icon_name']
+    ground_truth = load_ground_truth_from_yamls(os.path.join("data", "samples"))
 
     best_accuracy = 0
     best_params = None
@@ -792,14 +852,11 @@ for algorithm in args.algorithms:
 print("\nEvaluating accuracy for all algorithms...")
 
 # Load ground truth mappings
-ground_truth = {}
-mappings_file = "scripts/processing-pipeline/target-icons/mappings.csv"
-if os.path.exists(mappings_file):
-    with open(mappings_file, 'r') as csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
-            ground_truth[row['file_name']] = row['mapping_icon_name']
+ground_truth = load_ground_truth_from_yamls(os.path.join('data', 'samples'))
 
+if ground_truth:
+    summary_results = []
+    
     for algorithm in args.algorithms:
         print(f"\n--- Evaluating {algorithm} ---")
         
@@ -844,6 +901,13 @@ if os.path.exists(mappings_file):
 
             accuracy = correct / total * 100 if total > 0 else 0
             print(f"\n{algorithm.capitalize()} Accuracy: {correct}/{total} = {accuracy:.2f}%")
+            
+            summary_results.append({
+                'algorithm': algorithm,
+                'accuracy': accuracy,
+                'correct': correct,
+                'total': total
+            })
 
             # Save detailed evaluation results
             eval_file = f"scripts/processing-pipeline/{algorithm}_evaluation_results.csv"
@@ -856,5 +920,27 @@ if os.path.exists(mappings_file):
             print(f"Detailed results saved to {eval_file}")
         else:
             print(f"Results file not found: {results_file}")
+
+    # Print summary table and save to CSV
+    if summary_results:
+        print("\n" + "="*60)
+        print("ALGORITHM ACCURACY SUMMARY")
+        print("="*60)
+        print(f"{'Algorithm':<20} | {'Accuracy':<10} | {'Correct/Total':<15}")
+        print("-" * 60)
+        
+        for res in summary_results:
+            print(f"{res['algorithm'].capitalize():<20} | {res['accuracy']:.2f}%     | {res['correct']}/{res['total']}")
+        
+        print("="*60 + "\n")
+
+        # Save summary CSV
+        summary_file = "scripts/processing-pipeline/all_algorithms_summary.csv"
+        with open(summary_file, 'w', newline='') as csvfile:
+            fieldnames = ['algorithm', 'accuracy', 'correct', 'total']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(summary_results)
+        print(f"Summary saved to {summary_file}")
 else:
-    print(f"Mappings file not found: {mappings_file}")
+    print(f"No ground truth data found in data/samples")
