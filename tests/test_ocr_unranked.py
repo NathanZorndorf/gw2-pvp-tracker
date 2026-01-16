@@ -18,24 +18,20 @@ UNRANKED_FOLDERS = sorted([
     if d.is_dir() and d.name.startswith("unranked") and (d / "ground_truth.yaml").exists()
 ])
 
+@pytest.fixture(scope="session")
+def easyocr_method():
+    """Share EasyOCR reader across all tests in the session."""
+    return EasyOCRMethod(use_gpu=False, resize_factor=2.0, languages=['en', 'es', 'fr', 'pt', 'de'])
+
 @pytest.mark.parametrize("folder", UNRANKED_FOLDERS, ids=lambda d: d.name)
-def test_easyocr_recognizes_all_names_unranked(folder, stats_recorder):
+def test_easyocr_recognizes_all_names_unranked(folder, easyocr_method, stats_recorder):
     """Run EasyOCR on the unranked sample folder and assert all names are recognized exactly."""
     if not (folder / "ground_truth.yaml").exists():
         pytest.skip("Sample ground truth missing")
         
-    # Skip test if EasyOCR not installed in the environment
-    try:
-        import easyocr  # noqa: F401
-    except Exception:
-        pytest.skip("EasyOCR not installed in test environment")
-
     # Use arena_type='unranked' to ensure correct bounding boxes
     bench = OCRBenchmark(str(folder), str(CONFIG_PATH), arena_type='unranked')
-
-    # Use EasyOCR with additional languages to improve accented-character recognition
-    method = EasyOCRMethod(use_gpu=False, resize_factor=2.0, languages=['en', 'es', 'fr', 'pt'])
-    bench.add_method(method)
+    bench.add_method(easyocr_method)
 
     results = bench.run_all()
     assert results, "No benchmark results produced"

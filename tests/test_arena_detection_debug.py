@@ -46,7 +46,8 @@ def test_arena_type_detection_tiebreaker(config):
     print(f"Regions match: {regions_match}")
     
     # Run detection
-    arena, confidence = ocr.detect_arena_type(image, roster_regions)
+    detection_region = config.get('arena_type_detection')
+    arena, confidence = ocr.detect_arena_type(image, roster_regions, detection_region)
     print(f"Detected: {arena} with confidence {confidence}")
     
     # If they are identical, it currently defaults to unranked.

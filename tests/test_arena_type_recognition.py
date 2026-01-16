@@ -5,9 +5,10 @@ from pathlib import Path
 import cv2
 import yaml
 
-# Ensure project root is on sys.path
+# Ensure project root and src are on sys.path
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root / "src"))
 
 from config import Config
 from vision.ocr_engine import OCREngine
@@ -18,11 +19,11 @@ ALL_FOLDERS = sorted([
     if d.is_dir() and (d.name.startswith("ranked") or d.name.startswith("unranked"))
 ])
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def config():
     return Config("config.yaml")
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def ocr_engine(config):
     return OCREngine(
         engine=config.get('ocr.engine', 'easyocr'),
@@ -41,6 +42,7 @@ def test_arena_type_detection(folder, config, ocr_engine, stats_recorder):
         pytest.skip(f"No images in {folder}")
 
     roster_regions = config.get('roster_regions')
+    detection_region = config.get('arena_type_detection')
     
     total_checked = 0
     correct_checked = 0
@@ -56,7 +58,7 @@ def test_arena_type_detection(folder, config, ocr_engine, stats_recorder):
         if image is None:
             continue
             
-        detected_type, confidence = ocr_engine.detect_arena_type(image, roster_regions)
+        detected_type, confidence = ocr_engine.detect_arena_type(image, roster_regions, detection_region)
         
         is_correct = (detected_type == expected_type)
         status = "OK" if is_correct else "FAIL"

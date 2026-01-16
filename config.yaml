@@ -28,6 +28,13 @@ ocr:
 fuzzy:
   name_match_threshold: 80  # 0-100
 
+# Arena Type Detection Region (from arena_type_bounding_boxes.csv)
+arena_type_detection:
+  x: 1240
+  y: 408
+  width: 205
+  height: 67
+
 # Database
 database:
   path: "data/pvp_tracker.db"

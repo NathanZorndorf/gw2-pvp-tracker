@@ -18,26 +18,24 @@ RANKED_FOLDERS = sorted([
     if d.is_dir() and d.name.startswith("ranked") and (d / "ground_truth.yaml").exists()
 ])
 
-def create_benchmark(folder):
+@pytest.fixture(scope="session")
+def easyocr_method():
+    """Share EasyOCR reader across all tests in the session."""
+    return EasyOCRMethod(use_gpu=False, resize_factor=2.0, languages=['en', 'es', 'fr', 'pt', 'de'])
+
+def create_benchmark(folder, method):
     if not (folder / "ground_truth.yaml").exists():
         pytest.skip("Ranked gameplay ground truth missing")
     
-    try:
-        import easyocr  # noqa: F401
-    except ImportError:
-        pytest.skip("EasyOCR not installed in test environment")
-
     # Use arena_type='ranked' to ensure correct bounding boxes
     bench = OCRBenchmark(str(folder), str(CONFIG_PATH), arena_type='ranked')
-    # Use EasyOCR with additional languages for accented characters
-    method = EasyOCRMethod(use_gpu=False, resize_factor=2.0, languages=['en', 'es', 'fr', 'pt', 'de'])
     bench.add_method(method)
     return bench
 
 @pytest.mark.parametrize("folder", RANKED_FOLDERS, ids=lambda d: d.name)
-def test_easyocr_recognizes_ranked_start_names(folder, stats_recorder):
+def test_easyocr_recognizes_ranked_start_names(folder, easyocr_method, stats_recorder):
     """Test that EasyOCR correctly extracts all player names from start frame."""
-    benchmark = create_benchmark(folder)
+    benchmark = create_benchmark(folder, easyocr_method)
     results = benchmark.run_all()
     assert results, "No benchmark results produced"
 
@@ -86,9 +84,9 @@ def test_easyocr_recognizes_ranked_start_names(folder, stats_recorder):
         assert accuracy == 1.0, f"Start frame name accuracy not 100%: {accuracy*100:.1f}%"
 
 @pytest.mark.parametrize("folder", RANKED_FOLDERS, ids=lambda d: d.name)
-def test_easyocr_extracts_ranked_scores(folder, stats_recorder):
+def test_easyocr_extracts_ranked_scores(folder, easyocr_method, stats_recorder):
     """Test that EasyOCR correctly extracts scores from end frame."""
-    benchmark = create_benchmark(folder)
+    benchmark = create_benchmark(folder, easyocr_method)
     results = benchmark.run_all()
     assert results, "No benchmark results produced"
 
