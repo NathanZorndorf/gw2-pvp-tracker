@@ -9,6 +9,16 @@ import numpy as np
 import argparse
 import csv
 try:
+    from PIL import Image
+    PIL_AVAILABLE = True
+except ImportError:
+    PIL_AVAILABLE = False
+try:
+    import pandas as pd
+    PANDAS_AVAILABLE = True
+except ImportError:
+    PANDAS_AVAILABLE = False
+try:
     import torch
     import torchvision.transforms as transforms
     from torchvision.models import resnet18
@@ -34,8 +44,95 @@ parser.add_argument('--grid-search', action='store_true',
 parser.add_argument('--bilateral', action='store_true', help='Apply bilateral filtering to smooth noise while preserving edges')
 parser.add_argument('--mask-circular', action='store_true', help='Apply circular mask to remove corner artifacts')
 parser.add_argument('--morph-closing', action='store_true', help='Apply morphological closing to bridge gaps in contours')
-parser.add_argument('--debug', action='store_true', help='Save visualization images of matches to data/debug/icon_matching_vis/')
+parser.add_argument('--debug', action='store_true', help='Save visualization images of matches to scripts/processing-pipeline/debug/icon_matching_vis/')
 args = parser.parse_args()
+
+def extract_icons_from_rectangles(samples_dir, output_dir):
+    """
+    Extract icons from rectangles that contain multiple icons, splitting each rectangle into 5 evenly spaced squares.
+    Uses appropriate CSV based on ranked/unranked samples.
+    """
+    if not PIL_AVAILABLE or not PANDAS_AVAILABLE:
+        print("PIL or pandas not available, cannot extract icons")
+        return
+    
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Find all start images in samples directory
+    start_images = []
+    for root, dirs, files in os.walk(samples_dir):
+        for file in files:
+            if 'match_start' in file and file.endswith('.png'):
+                start_images.append(os.path.join(root, file))
+
+    print(f"Found {len(start_images)} start images to process")
+
+    # Process each start image
+    for image_path in start_images:
+        try:
+            img = Image.open(image_path)
+            image_name = os.path.basename(image_path)
+            sample_folder = os.path.basename(os.path.dirname(image_path))
+
+            # Determine which CSV to use based on sample folder
+            if 'unranked' in sample_folder:
+                csv_path = os.path.join('data', 'unranked_bounding_boxes.csv')
+            elif 'ranked' in sample_folder:
+                csv_path = os.path.join('data', 'ranked_bounding_boxes.csv')
+            else:
+                print(f"Unknown sample type for {sample_folder}, skipping")
+                continue
+
+            # Read the CSV file and handle potential duplicate labels (take last)
+            df = pd.read_csv(csv_path)
+            if 'label_name' in df.columns:
+                 df = df.drop_duplicates(subset=['label_name'], keep='last')
+
+            # Process each rectangle
+            for _, row in df.iterrows():
+                label_name = row['label_name']
+                if 'Icons' not in label_name:
+                    continue  # Only process icon rectangles
+                bbox_x = int(row['bbox_x'])
+                bbox_y = int(row['bbox_y'])
+                bbox_width = int(row['bbox_width'])
+                bbox_height = int(row['bbox_height'])
+
+                # Crop the rectangle
+                rect_img = img.crop((bbox_x, bbox_y, bbox_x + bbox_width, bbox_y + bbox_height))
+
+                # Split into 5 evenly spaced squares
+                num_icons = 5
+                icon_height = bbox_height // num_icons
+                square_size = min(bbox_width, icon_height)  # Make it square
+
+                team = "Red" if "Red" in label_name else "Blue"
+
+                for i in range(num_icons):
+                    # Calculate vertical position
+                    y_start = i * icon_height
+                    y_end = y_start + square_size
+
+                    # Center horizontally
+                    x_start = (bbox_width - square_size) // 2
+                    x_end = x_start + square_size
+
+                    # Crop the square
+                    icon_img = rect_img.crop((x_start, y_start, x_end, y_end))
+
+                    # Create filename
+                    player_num = i + 1
+                    safe_label = f"{team}_Player_{player_num}___Class"
+                    output_filename = f"{sample_folder}_{safe_label}_{os.path.splitext(image_name)[0]}.png"
+                    output_path = os.path.join(output_dir, output_filename)
+
+                    # Save the icon
+                    icon_img.save(output_path)
+                    print(f"Extracted and saved: {output_path}")
+
+        except Exception as e:
+            print(f"Error processing {image_path}: {str(e)}")
 
 if 'all' in args.algorithms:
     args.algorithms = ['template', 'sift', 'orb', 'cnn']
@@ -492,7 +589,7 @@ def perform_grid_search():
 
     # Load ground truth
     ground_truth = {}
-    mappings_file = "../../data/target-icons/mappings.csv"
+    mappings_file = "../../scripts/processing-pipeline/target-icons/mappings.csv"
     with open(mappings_file, 'r') as csvfile:
         reader = csv.DictReader(csvfile)
         for row in reader:
@@ -562,12 +659,18 @@ if args.grid_search:
     best_params = perform_grid_search()
     exit(0)
 
+# Extract target icons if not present
+target_icons_dir = os.path.join('scripts', 'processing-pipeline', 'target-icons')
+if not os.path.exists(target_icons_dir) or not any(f.endswith('.png') for f in os.listdir(target_icons_dir)):
+    print("Extracting target icons...")
+    samples_dir = os.path.join('data', 'samples')
+    extract_icons_from_rectangles(samples_dir, target_icons_dir)
 
 # Load original images
 target_images_orig = {}
-for filename in os.listdir("data/target-icons"):
+for filename in os.listdir(target_icons_dir):
     if filename.endswith('.png'):
-        path = os.path.join("data/target-icons", filename)
+        path = os.path.join(target_icons_dir, filename)
         target_images_orig[filename] = cv2.imread(path)
 
 ref_images_orig = {}
@@ -671,7 +774,7 @@ for algorithm in args.algorithms:
                 best_match, 
                 ref_images_orig[best_match], 
                 algorithm, 
-                "data/debug/icon_matching_vis"
+                "scripts/processing-pipeline/debug/icon_matching_vis"
             )
     
     # Save results to CSV
@@ -690,7 +793,7 @@ print("\nEvaluating accuracy for all algorithms...")
 
 # Load ground truth mappings
 ground_truth = {}
-mappings_file = "data/target-icons/mappings.csv"
+mappings_file = "scripts/processing-pipeline/target-icons/mappings.csv"
 if os.path.exists(mappings_file):
     with open(mappings_file, 'r') as csvfile:
         reader = csv.DictReader(csvfile)

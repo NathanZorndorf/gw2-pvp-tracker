@@ -3,20 +3,17 @@ import pandas as pd
 from PIL import Image
 import glob
 
-def extract_icons_from_csv(csv_path, samples_dir, output_dir):
+def extract_icons_from_csv(samples_dir, output_dir):
     """
-    Extract icons from all start screenshots in samples based on bounding boxes defined in a CSV file.
+    Extract icons from all start screenshots in samples based on bounding boxes defined in CSV files.
+    Automatically selects appropriate CSV based on sample folder name.
 
     Args:
-        csv_path (str): Path to the CSV file containing bounding box data.
         samples_dir (str): Directory to search for start images (data/samples).
         output_dir (str): Directory to save extracted icons.
     """
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
-
-    # Read the CSV file
-    df = pd.read_csv(csv_path)
 
     # Find all start images in samples directory
     start_images = []
@@ -33,6 +30,25 @@ def extract_icons_from_csv(csv_path, samples_dir, output_dir):
             img = Image.open(image_path)
             image_name = os.path.basename(image_path)
             sample_folder = os.path.basename(os.path.dirname(image_path))
+
+            # Determine config based on folder name
+            if 'unranked' in sample_folder:
+                csv_path = os.path.join(os.path.dirname(samples_dir), 'unranked_bounding_boxes.csv')
+            elif 'ranked' in sample_folder:
+                csv_path = os.path.join(os.path.dirname(samples_dir), 'ranked_bounding_boxes.csv')
+            else:
+                print(f"Skipping {image_path}: Could not determine if ranked or unranked")
+                continue
+
+            if not os.path.exists(csv_path):
+                print(f"Warning: CSV file not found: {csv_path}")
+                continue
+
+            # Read the CSV file
+            df = pd.read_csv(csv_path)
+            # Handle duplicates (keep last)
+            if 'label_name' in df.columns:
+                 df = df.drop_duplicates(subset=['label_name'], keep='last')
 
             # Process each bounding box
             for _, row in df.iterrows():
@@ -59,9 +75,8 @@ def extract_icons_from_csv(csv_path, samples_dir, output_dir):
 
 if __name__ == "__main__":
     # Define paths
-    csv_path = os.path.join('data', 'ranked-icon-bounding-boxes.csv')
     samples_dir = os.path.join('data', 'samples')
     output_dir = os.path.join('data', 'target-icons')
 
     # Run the extraction
-    extract_icons_from_csv(csv_path, samples_dir, output_dir)
+    extract_icons_from_csv(samples_dir, output_dir)

@@ -2,20 +2,17 @@ import os
 import pandas as pd
 from PIL import Image
 
-def extract_icons_from_rectangles(csv_path, samples_dir, output_dir):
+def extract_icons_from_rectangles(samples_dir, output_dir):
     """
     Extract icons from rectangles that contain multiple icons, splitting each rectangle into 5 evenly spaced squares.
+    Automatically selects appropriate CSV based on sample folder name.
 
     Args:
-        csv_path (str): Path to the CSV file containing rectangle bounding box data.
         samples_dir (str): Directory to search for start images (data/samples).
         output_dir (str): Directory to save extracted icons.
     """
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)
-
-    # Read the CSV file
-    df = pd.read_csv(csv_path)
 
     # Find all start images in samples directory
     start_images = []
@@ -33,8 +30,25 @@ def extract_icons_from_rectangles(csv_path, samples_dir, output_dir):
             image_name = os.path.basename(image_path)
             sample_folder = os.path.basename(os.path.dirname(image_path))
 
-            # Process each rectangle
-            for _, row in df.iterrows():
+            # Determine config based on folder name
+            if 'unranked' in sample_folder:
+                csv_path = os.path.join(os.path.dirname(samples_dir), 'unranked_bounding_boxes.csv')
+            elif 'ranked' in sample_folder:
+                csv_path = os.path.join(os.path.dirname(samples_dir), 'ranked_bounding_boxes.csv')
+            else:
+                print(f"Skipping {image_path}: Could not determine if ranked or unranked")
+                continue
+
+            if not os.path.exists(csv_path):
+                print(f"Warning: CSV file not found: {csv_path}")
+                continue
+
+            # Read the CSV file
+            df = pd.read_csv(csv_path)
+            # Handle duplicates (keep last)
+            if 'label_name' in df.columns:
+                 df = df.drop_duplicates(subset=['label_name'], keep='last')
+
                 label_name = row['label_name']
                 bbox_x = int(row['bbox_x'])
                 bbox_y = int(row['bbox_y'])
@@ -78,9 +92,8 @@ def extract_icons_from_rectangles(csv_path, samples_dir, output_dir):
 
 if __name__ == "__main__":
     # Define paths
-    csv_path = os.path.join('data', 'ranked-icon-bounding-boxes-rectangle.csv')
     samples_dir = os.path.join('data', 'samples')
     output_dir = os.path.join('data', 'target-icons')
 
     # Run the extraction
-    extract_icons_from_rectangles(csv_path, samples_dir, output_dir)
+    extract_icons_from_rectangles(samples_dir, output_dir)
