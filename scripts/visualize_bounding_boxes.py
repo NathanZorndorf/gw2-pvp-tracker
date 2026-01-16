@@ -4,39 +4,48 @@ import os
 from pathlib import Path
 import numpy as np
 
-def visualize_bounding_boxes(csv_path, samples_dir, output_dir):
+def visualize_bounding_boxes(samples_dir, output_dir):
     """
-    Reads bounding boxes from CSV and draws them on ALL match_start images found in samples_dir.
-    This helps verify if the bounding boxes align across different samples.
+    Reads bounding boxes from appropriate CSVs and draws them on match_start images.
+    Uses ranked CSV for ranked samples, unranked CSV for unranked samples.
     """
-    if not os.path.exists(csv_path):
-        print(f"Error: CSV file not found at {csv_path}")
-        return
-
     # Create output directory
     os.makedirs(output_dir, exist_ok=True)
 
-    # Load CSV
-    df = pd.read_csv(csv_path)
+    # Load both CSVs
+    ranked_csv = "data/ranked_bounding_boxes.csv"
+    unranked_csv = "data/unranked_bounding_boxes.csv"
     
-    # Extract unique labels and their boxes as a reference set
-    # We assume the CSV contains one "truth" set we want to test against all images
-    reference_boxes = []
-    seen_labels = set()
+    ranked_df = pd.read_csv(ranked_csv)
+    unranked_df = pd.read_csv(unranked_csv)
     
-    for _, row in df.iterrows():
-        label = row['label_name']
-        if label not in seen_labels:
-            reference_boxes.append({
+    # Extract boxes
+    def get_boxes(df, source_name):
+        boxes_dict = {}
+        duplicates = []
+        for _, row in df.iterrows():
+            label = row['label_name']
+            if label in boxes_dict:
+                duplicates.append(label)
+            
+            boxes_dict[label] = {
                 'label': label,
                 'x': int(row['bbox_x']),
                 'y': int(row['bbox_y']),
                 'w': int(row['bbox_width']),
                 'h': int(row['bbox_height'])
-            })
-            seen_labels.add(label)
+            }
+        
+        if duplicates:
+            print(f"Warning: Duplicate labels found in {source_name}: {set(duplicates)}. Using last occurrence.")
+            
+        return list(boxes_dict.values())
     
-    print(f"Loaded {len(reference_boxes)} reference bounding boxes from CSV.")
+    ranked_boxes = get_boxes(ranked_df, ranked_csv)
+    unranked_boxes = get_boxes(unranked_df, unranked_csv)
+    
+    print(f"Loaded {len(ranked_boxes)} ranked and {len(unranked_boxes)} unranked bounding boxes.")
+
 
     # Find all match_start images
     samples_path = Path(samples_dir)
@@ -48,19 +57,30 @@ def visualize_bounding_boxes(csv_path, samples_dir, output_dir):
     for image_path in images_to_process:
         print(f"Processing {image_path.name}...")
         
+        # Determine which boxes to use
+        parent_name = image_path.parent.name
+        if 'unranked' in parent_name:
+            boxes = unranked_boxes
+            csv_type = "unranked"
+        elif 'ranked' in parent_name:
+            boxes = ranked_boxes
+            csv_type = "ranked"
+        else:
+            print(f"Unknown sample type for {parent_name}, skipping")
+            continue
+        
         # Load image
         img = cv2.imread(str(image_path))
         if img is None:
             print(f"Error: Failed to load image {image_path}")
             continue
 
-        # Draw ALL reference boxes on this image
-        for box in reference_boxes:
+        # Draw boxes
+        for box in boxes:
             x, y, w, h = box['x'], box['y'], box['w'], box['h']
             label = box['label']
             
             # Draw rectangle 
-            # Use red color (BGR)
             color = (0, 0, 255) 
             thickness = 2
             cv2.rectangle(img, (x, y), (x + w, y + h), color, thickness)
@@ -68,24 +88,17 @@ def visualize_bounding_boxes(csv_path, samples_dir, output_dir):
             # Draw label
             font_scale = 0.6
             font = cv2.FONT_HERSHEY_SIMPLEX
-            # Get text size
             (text_width, text_height), baseline = cv2.getTextSize(label, font, font_scale, thickness)
             
-            # Draw background for text (semi-transparent if possible, but solid for now)
-            # Ensure text doesn't go off screen at top
             text_y = y - 5
             if text_y < 20: 
                 text_y = y + h + 20
                 
             cv2.rectangle(img, (x, text_y - text_height - 5), (x + text_width, text_y + 5), color, -1)
             
-            # Draw text
             cv2.putText(img, label, (x, text_y), font, font_scale, (255, 255, 255), thickness)
 
-        # Use the parent folder name and type (start/end) for the filename
-        # e.g., ranked-1-start.png
-        parent_name = image_path.parent.name
-        
+        # Output filename
         if "match_start" in image_path.name:
             suffix = "start"
         elif "match_end" in image_path.name:
@@ -102,8 +115,12 @@ def visualize_bounding_boxes(csv_path, samples_dir, output_dir):
     print(f"Finished. Check results in {output_dir}")
 
 if __name__ == "__main__":
-    csv_file = "data/ranked_bounding_boxes.csv"
-    samples_directory = "data/samples"
-    output_directory = "data/debug/bounding_boxes_vis"
+    import argparse
     
-    visualize_bounding_boxes(csv_file, samples_directory, output_directory)
+    parser = argparse.ArgumentParser(description='Visualize bounding boxes on sample images')
+    parser.add_argument('--samples', default='data/samples', help='Directory containing sample images')
+    parser.add_argument('--output', default='data/debug/bounding_boxes_vis', help='Output directory for visualizations')
+    
+    args = parser.parse_args()
+    
+    visualize_bounding_boxes(args.samples, args.output)
