@@ -51,6 +51,7 @@ parser.add_argument('--bilateral', action='store_true', help='Apply bilateral fi
 parser.add_argument('--mask-circular', action='store_true', help='Apply circular mask to remove corner artifacts')
 parser.add_argument('--morph-closing', action='store_true', help='Apply morphological closing to bridge gaps in contours')
 parser.add_argument('--debug', action='store_true', help='Save visualization images of matches to scripts/processing-pipeline/debug/icon_matching_vis/')
+parser.add_argument('--top-n', type=int, default=1, help='Number of top matches to show per target (default: 1)')
 args = parser.parse_args()
 
 def extract_icons_from_rectangles(samples_dir, output_dir):
@@ -311,24 +312,44 @@ def target_icon_pre_processing_pipeline(img: np.ndarray, clahe_clip=1.0, clahe_t
 import cv2
 import numpy as np
 
-def preprocess_for_feature_matching(img: np.ndarray, clahe_clip=1.0, clahe_tile=(2,2)) -> np.ndarray:
+def preprocess_reference_icon_for_feature_matching(img: np.ndarray, clahe_clip=1.0, clahe_tile=(2,2)) -> np.ndarray:
+    # 1. Grayscale and Resize
+    if len(img.shape) == 3:
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    img = cv2.resize(img, REFERENCE_ICON_SIZE, interpolation=cv2.INTER_AREA)
+
+    return img 
+
+def preprocess_target_icon_for_feature_matching(img: np.ndarray, clahe_clip=1.0, clahe_tile=(2,2)) -> np.ndarray:
     # 1. Grayscale and Resize
     if len(img.shape) == 3:
         img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     img = cv2.resize(img, REFERENCE_ICON_SIZE, interpolation=cv2.INTER_AREA)
 
     # 2. Initial Contrast Enhancement
+    # clahe_clip = 1.0
+    # clahe_tile = (4,4)
     clahe = cv2.createCLAHE(clipLimit=clahe_clip, tileGridSize=clahe_tile)
     enhanced = clahe.apply(img)
 
+
     # 3. Create a Binary Mask (Otsu's method works well for dark backgrounds)
     # We use a slight Gaussian blur to reduce noise before thresholding
-    blurred = cv2.GaussianBlur(enhanced, (5, 5), 0)
+    blurred = cv2.GaussianBlur(enhanced, (1, 1), 0)
     _, mask = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
 
-    # 4. Cleanup Mask (Optional: removes small speckles)
-    kernel = np.ones((3,3), np.uint8)
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+    # return mask # 71 % accuracy 
+
+    # 6. Apply mask to the enhanced image
+    # This makes everything outside the contour 0 (black)
+    result = cv2.bitwise_and(enhanced, enhanced, mask=mask)
+
+    # return result # 76 % accuracy 
+
+    # Normalize the masked icon to make it "whiter" (maps brightest pixel to 255)
+    result = cv2.normalize(result, None, 0, 255, cv2.NORM_MINMAX)
+    return result 
+
 
     # 5. Extract the Icon (Largest Contour)
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -336,7 +357,15 @@ def preprocess_for_feature_matching(img: np.ndarray, clahe_clip=1.0, clahe_tile=
     if contours:
         # Assume the icon is the largest object found
         largest_contour = max(contours, key=cv2.contourArea)
-        
+    
+        # Draw the contour: 
+        # -1 means 'draw the specific contour provided'
+        # 255 is the color (white)
+        # 2 is the thickness of the line
+        # contour_canvas = np.zeros_like(enhanced) # Create a black canvas of the same size as your image
+        # cv2.drawContours(contour_canvas, [largest_contour], -1, 255, thickness=cv2.FILLED)
+        # return contour_canvas
+
         # Create a final clean black mask
         final_mask = np.zeros_like(img)
         cv2.drawContours(final_mask, [largest_contour], -1, 255, thickness=cv2.FILLED)
@@ -344,6 +373,8 @@ def preprocess_for_feature_matching(img: np.ndarray, clahe_clip=1.0, clahe_tile=
         # 6. Apply mask to the enhanced image
         # This makes everything outside the contour 0 (black)
         result = cv2.bitwise_and(enhanced, enhanced, mask=final_mask)
+
+        # return result
 
         # 7. Normalize Brightness (Stretch the icon's intensity to the full 0-255 range)
         # We only look at pixels where the mask is active
@@ -473,24 +504,8 @@ def visualize_match(target_name, target_img, best_match_name, ref_img, algorithm
         os.makedirs(output_dir)
         
     # Get processed versions based on algorithm
-    if algorithm == 'template':
-        target_proc = target_icon_pre_processing_pipeline(
-            target_img, 
-            use_bilateral=args.bilateral, 
-            use_mask_circular=args.mask_circular, 
-            use_morph_closing=args.morph_closing
-        )
-        ref_proc = target_icon_pre_processing_pipeline(
-            ref_img, 
-            use_bilateral=args.bilateral, 
-            use_mask_circular=args.mask_circular, 
-            use_morph_closing=args.morph_closing
-        )
-    else: # sift, orb, cnn
-        # For CNN we don't have a "processed image" easily viewable other than just resized/normalized
-        # So we'll just show what sift/orb sees
-        target_proc = preprocess_for_feature_matching(target_img)
-        ref_proc = preprocess_for_feature_matching(ref_img)
+    target_proc = preprocess_target_icon_for_feature_matching(target_img)
+    ref_proc = preprocess_reference_icon_for_feature_matching(ref_img)
     
     # helper to ensure BGR and size
     def ensure_bgr_32(img):
@@ -721,10 +736,9 @@ if args.grid_search:
 
 # Extract target icons if not present
 target_icons_dir = os.path.join('scripts', 'processing-pipeline', 'target-icons')
-if not os.path.exists(target_icons_dir) or not any(f.endswith('.png') for f in os.listdir(target_icons_dir)):
-    print("Extracting target icons...")
-    samples_dir = os.path.join('data', 'samples')
-    extract_icons_from_rectangles(samples_dir, target_icons_dir)
+print("Extracting target icons...")
+samples_dir = os.path.join('data', 'samples')
+extract_icons_from_rectangles(samples_dir, target_icons_dir)
 
 # Load original images
 target_images_orig = {}
@@ -782,33 +796,34 @@ for algorithm in args.algorithms:
     results = []
     
     for target_name, target_img in target_images_orig.items():
-        best_match = None
-        highest_score = -1
+        matches = []
         
         for ref_name, ref_img in ref_images_orig.items():
             if algorithm == 'template':
                 # Preprocess for template
-                target_proc = target_icon_pre_processing_pipeline(
-                    target_img, 
-                    use_bilateral=args.bilateral, 
-                    use_mask_circular=args.mask_circular, 
-                    use_morph_closing=args.morph_closing
-                )
-                ref_proc = target_icon_pre_processing_pipeline(
-                    ref_img, 
-                    use_bilateral=args.bilateral, 
-                    use_mask_circular=args.mask_circular, 
-                    use_morph_closing=args.morph_closing
-                )
+                target_proc = preprocess_target_icon_for_feature_matching(target_img)
+                ref_proc = preprocess_reference_icon_for_feature_matching(ref_img)
+                # target_proc = target_icon_pre_processing_pipeline(
+                #     target_img, 
+                #     use_bilateral=args.bilateral, 
+                #     use_mask_circular=args.mask_circular, 
+                #     use_morph_closing=args.morph_closing
+                # )
+                # ref_proc = target_icon_pre_processing_pipeline(
+                #     ref_img, 
+                #     use_bilateral=args.bilateral, 
+                #     use_mask_circular=args.mask_circular, 
+                #     use_morph_closing=args.morph_closing
+                # )
                 method = getattr(cv2, args.template_method)
                 score = match_template(target_proc, ref_proc, method)
             elif algorithm == 'sift':
-                target_proc = preprocess_for_feature_matching(target_img)
-                ref_proc = preprocess_for_feature_matching(ref_img)
+                target_proc = preprocess_target_icon_for_feature_matching(target_img)
+                ref_proc = preprocess_reference_icon_for_feature_matching(ref_img)
                 score = match_sift(target_proc, ref_proc)
             elif algorithm == 'orb':
-                target_proc = preprocess_for_feature_matching(target_img)
-                ref_proc = preprocess_for_feature_matching(ref_img)
+                target_proc = preprocess_target_icon_for_feature_matching(target_img)
+                ref_proc = preprocess_reference_icon_for_feature_matching(ref_img)
                 score = match_orb(target_proc, ref_proc)
             elif algorithm == 'cnn':
                 # Use precomputed features
@@ -816,16 +831,22 @@ for algorithm in args.algorithms:
                 ref_feat = ref_features[ref_name]
                 score = np.dot(target_feat, ref_feat) / (np.linalg.norm(target_feat) * np.linalg.norm(ref_feat))
             
-            if score > highest_score:
-                highest_score = score
-                best_match = ref_name
+            matches.append((ref_name, score))
         
-        results.append({
-            'target': target_name,
-            'best_match': best_match,
-            'similarity': highest_score
-        })
-        print(f"{target_name} -> {best_match} (score: {highest_score:.4f})")
+        matches.sort(key=lambda x: x[1], reverse=True)
+        top_matches = matches[:args.top_n]
+        
+        print(f"{target_name} -> {', '.join([f'{name} ({score:.4f})' for name, score in top_matches])}")
+        
+        best_match = top_matches[0][0] if top_matches else None
+        
+        for rank, (match_name, score) in enumerate(top_matches, 1):
+            results.append({
+                'target': target_name,
+                'match': match_name,
+                'similarity': score,
+                'rank': rank
+            })
 
         if args.debug and best_match:
             visualize_match(
@@ -840,7 +861,7 @@ for algorithm in args.algorithms:
     # Save results to CSV
     results_file = f'scripts/processing-pipeline/{algorithm}_matching_results.csv'
     with open(results_file, 'w', newline='') as csvfile:
-        fieldnames = ['target', 'best_match', 'similarity']
+        fieldnames = ['target', 'match', 'similarity', 'rank']
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(results)
@@ -866,38 +887,50 @@ if ground_truth:
             with open(results_file, 'r') as csvfile:
                 reader = csv.DictReader(csvfile)
                 for row in reader:
-                    predicted_profession = row['best_match'].replace('.png', '') if row['best_match'] else None
-                    predictions[row['target']] = {
+                    predicted_profession = row['match'].replace('.png', '') if row['match'] else None
+                    target = row['target']
+                    rank = int(row['rank'])
+                    sim = float(row['similarity'])
+                    if target not in predictions:
+                        predictions[target] = []
+                    predictions[target].append({
                         'predicted': predicted_profession,
-                        'similarity': float(row['similarity'])
-                    }
+                        'similarity': sim,
+                        'rank': rank
+                    })
 
             # Calculate accuracy
             correct = 0
             total = 0
             evaluation_results = []
 
-            for target_file, pred_data in predictions.items():
+            for target_file, preds in predictions.items():
                 if target_file in ground_truth:
                     total += 1
                     actual = ground_truth[target_file]
-                    predicted = pred_data['predicted']
-                    similarity = pred_data['similarity']
+                    # Sort preds by rank
+                    preds.sort(key=lambda x: x['rank'])
+                    top_preds = preds[:args.top_n]
                     
-                    is_correct = actual == predicted
+                    # Check if best is correct
+                    best_pred = top_preds[0]['predicted'] if top_preds else None
+                    is_correct = actual == best_pred
                     if is_correct:
                         correct += 1
                     
+                    # For evaluation_results, use the best
+                    best_sim = top_preds[0]['similarity'] if top_preds else 0.0
                     evaluation_results.append({
                         'target': target_file,
                         'actual': actual,
-                        'predicted': predicted,
-                        'similarity': similarity,
+                        'predicted': best_pred,
+                        'similarity': best_sim,
                         'correct': is_correct
                     })
                     
                     status = "✓" if is_correct else "✗"
-                    print(f"{status} {target_file}: {actual} -> {predicted} (sim: {similarity:.4f})")
+                    pred_str = ', '.join([f"{p['predicted']} ({p['similarity']:.4f})" for p in top_preds])
+                    print(f"{status} {target_file}: {actual} -> {pred_str}")
 
             accuracy = correct / total * 100 if total > 0 else 0
             print(f"\n{algorithm.capitalize()} Accuracy: {correct}/{total} = {accuracy:.2f}%")
