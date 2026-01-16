@@ -1,0 +1,29 @@
+user_player: Phantom Tithe
+samples:
+- filename: match_start_20260111_184515_full.png
+  description: Start of match scoreboard
+  scores:
+    red: 0
+    blue: 0
+  red_team:
+  - name: Xanarra
+    profession: Harbinger
+  - name: Oriental Fettucine
+    profession: Paragon
+  - name: Twoandahalfmen
+    profession: Luminary
+  - name: B A B Y T H I E F
+    profession: Antiquary
+  - name: Pawstress
+    profession: Druid
+  blue_team:
+  - name: Phantom Tithe
+    profession: Antiquary
+  - name: Carpenterbrutt
+    profession: Guardian
+  - name: Hydor Yurox
+    profession: Spellbreaker
+  - name: Bedivere Proto
+    profession: Spellbreaker
+  - name: Il Il Cosmic Il Il
+    profession: Virtuoso

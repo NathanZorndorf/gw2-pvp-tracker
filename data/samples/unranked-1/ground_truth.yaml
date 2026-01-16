@@ -1,0 +1,34 @@
+user_player: Phantom Tithe
+samples:
+- filename: match_end_20260112_183858_full.png
+  description: End of match scoreboard
+  scores:
+    red: 500
+    blue: 123
+- filename: match_start_20260112_183113_full.png 
+  description: Start of match scoreboard
+  scores:
+    red: 0
+    blue: 0
+  red_team:
+  - name: Narciza
+    profession: Virtuoso
+  - name: Mëme Lord
+    profession: Troubadour
+  - name: Lobo Of Estepe
+    profession: Ranger
+  - name: Massivewreck
+    profession: Antiquary
+  - name: X A RE
+    profession: Weaver
+  blue_team:
+  - name: Andrew M
+    profession: Evoker
+  - name: Psyces
+    profession: Troubadour
+  - name: Phantom Tithe
+    profession: Antiquary
+  - name: Scandinavian Panzer
+    profession: Soulbeast
+  - name: Vergerez
+    profession: Virtuoso

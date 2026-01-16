@@ -1,0 +1,29 @@
+user_player: Phantom Tithe
+samples:
+- filename: match_start_20260110_202048_full.png
+  description: Start of match scoreboard
+  scores:
+    red: 0
+    blue: 0
+  red_team:
+  - name: null
+    profession: Antiquary
+  - name: null
+    profession: Necromancer
+  - name: null
+    profession: Necromancer
+  - name: null
+    profession: Amalgam
+  - name: null
+    profession: Engineer
+  blue_team:
+  - name: null
+    profession: Daredevil
+  - name: null
+    profession: Guardian
+  - name: null
+    profession: Spellbreaker
+  - name: null
+    profession: Amalgam
+  - name: null
+    profession: Reaper

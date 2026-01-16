@@ -1,0 +1,34 @@
+user_player: Violet Edge X
+samples:
+- filename: match_end_20260113_010240_full.png
+  description: End of match scoreboard
+  scores:
+    red: 500
+    blue: 246
+- filename: match_start_20260113_005315_full.png
+  description: Start of match scoreboard
+  scores:
+    red: 0
+    blue: 0
+  red_team:
+  - name: Little Crying Cat
+    profession: Troubadour
+  - name: Mini Sunflowers
+    profession: Amalgam
+  - name: Aristotle Li
+    profession: Galeshot
+  - name: Shineystar
+    profession: Mechanist
+  - name: Decterbao
+    profession: Daredevil
+  blue_team:
+  - name: Violet Edge X
+    profession: Virtuoso
+  - name: Unpurr Fanboy
+    profession: Engineer
+  - name: Bambiey
+    profession: Mirage
+  - name: Kelzuir
+    profession: Necromancer
+  - name: Tiaf Frost
+    profession: Evoker

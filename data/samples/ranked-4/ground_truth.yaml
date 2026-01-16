@@ -1,0 +1,29 @@
+user_player: Phantom Tithe
+samples:
+- filename: match_start_20260110_182154_full.png
+  description: Start of match scoreboard
+  scores:
+    red: 0
+    blue: 0
+  red_team:
+  - name: Over Powered Necro
+    profession: Ritualist
+  - name: Dark Nim
+    profession: Druid
+  - name: Cute Angel Wings
+    profession: Luminary
+  - name: null
+    profession: Ritualist
+  - name: Phantom Tithe
+    profession: Antiquary
+  blue_team:
+  - name: null
+    profession: Evoker
+  - name: null
+    profession: Galeshot
+  - name: null
+    profession: Druid
+  - name: null
+    profession: Luminary
+  - name: null
+    profession: Ritualist

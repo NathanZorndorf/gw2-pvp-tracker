@@ -1,0 +1,12 @@
+user_player: Violet Edge X
+samples:
+- filename: match_start_20260112_200906_full.png
+  description: Start of match scoreboard
+  scores:
+    red: 0
+    blue: 0
+- filename: match_end_20260112_201834_full.png
+  description: End of match scoreboard
+  scores:
+    red: 501
+    blue: 130
