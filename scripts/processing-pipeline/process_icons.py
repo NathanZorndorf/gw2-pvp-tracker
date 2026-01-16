@@ -34,6 +34,7 @@ parser.add_argument('--grid-search', action='store_true',
 parser.add_argument('--bilateral', action='store_true', help='Apply bilateral filtering to smooth noise while preserving edges')
 parser.add_argument('--mask-circular', action='store_true', help='Apply circular mask to remove corner artifacts')
 parser.add_argument('--morph-closing', action='store_true', help='Apply morphological closing to bridge gaps in contours')
+parser.add_argument('--debug', action='store_true', help='Save visualization images of matches to data/debug/icon_matching_vis/')
 args = parser.parse_args()
 
 if 'all' in args.algorithms:
@@ -204,12 +205,63 @@ def target_icon_pre_processing_pipeline(img: np.ndarray, clahe_clip=1.0, clahe_t
     return img
 
 
-def preprocess_for_feature_matching(img: np.ndarray) -> np.ndarray:
-    """Preprocess image for SIFT/ORB (grayscale, resize)"""
+import cv2
+import numpy as np
+
+def preprocess_for_feature_matching(img: np.ndarray, clahe_clip=1.0, clahe_tile=(2,2)) -> np.ndarray:
+    # 1. Grayscale and Resize
     if len(img.shape) == 3:
         img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     img = cv2.resize(img, REFERENCE_ICON_SIZE, interpolation=cv2.INTER_AREA)
-    return img
+
+    # 2. Initial Contrast Enhancement
+    clahe = cv2.createCLAHE(clipLimit=clahe_clip, tileGridSize=clahe_tile)
+    enhanced = clahe.apply(img)
+
+    # 3. Create a Binary Mask (Otsu's method works well for dark backgrounds)
+    # We use a slight Gaussian blur to reduce noise before thresholding
+    blurred = cv2.GaussianBlur(enhanced, (5, 5), 0)
+    _, mask = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    # 4. Cleanup Mask (Optional: removes small speckles)
+    kernel = np.ones((3,3), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+
+    # 5. Extract the Icon (Largest Contour)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    if contours:
+        # Assume the icon is the largest object found
+        largest_contour = max(contours, key=cv2.contourArea)
+        
+        # Create a final clean black mask
+        final_mask = np.zeros_like(img)
+        cv2.drawContours(final_mask, [largest_contour], -1, 255, thickness=cv2.FILLED)
+        
+        # 6. Apply mask to the enhanced image
+        # This makes everything outside the contour 0 (black)
+        result = cv2.bitwise_and(enhanced, enhanced, mask=final_mask)
+
+        # 7. Normalize Brightness (Stretch the icon's intensity to the full 0-255 range)
+        # We only look at pixels where the mask is active
+        icon_pixels = enhanced[final_mask > 0]
+        if icon_pixels.size > 0:
+            min_val = np.min(icon_pixels)
+            max_val = np.max(icon_pixels)
+            
+            # Linear stretch: (Pixel - min) / (max - min) * 255
+            # This ensures the darkest part of the icon is black and the brightest is white
+            if max_val > min_val:
+                stretched = (enhanced.astype(float) - min_val) * (255.0 / (max_val - min_val))
+                stretched = np.clip(stretched, 0, 255).astype(np.uint8)
+                
+                # Re-mask to keep the background black
+                result = cv2.bitwise_and(stretched, stretched, mask=final_mask)
+                return result
+            
+        return result
+
+    return enhanced # Fallback to original if no contours found
 
 
 def preprocess_for_cnn(img: np.ndarray) -> torch.Tensor:
@@ -311,6 +363,114 @@ def match_cnn(target_tensor, ref_tensor, model):
     
     cos_sim = torch.nn.functional.cosine_similarity(target_feat, ref_feat, dim=0)
     return cos_sim.item()
+
+def visualize_match(target_name, target_img, best_match_name, ref_img, algorithm, output_dir):
+    """Visualize and save the match comparison"""
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        
+    # Get processed versions based on algorithm
+    if algorithm == 'template':
+        target_proc = target_icon_pre_processing_pipeline(
+            target_img, 
+            use_bilateral=args.bilateral, 
+            use_mask_circular=args.mask_circular, 
+            use_morph_closing=args.morph_closing
+        )
+        ref_proc = target_icon_pre_processing_pipeline(
+            ref_img, 
+            use_bilateral=args.bilateral, 
+            use_mask_circular=args.mask_circular, 
+            use_morph_closing=args.morph_closing
+        )
+    else: # sift, orb, cnn
+        # For CNN we don't have a "processed image" easily viewable other than just resized/normalized
+        # So we'll just show what sift/orb sees
+        target_proc = preprocess_for_feature_matching(target_img)
+        ref_proc = preprocess_for_feature_matching(ref_img)
+    
+    # helper to ensure BGR and size
+    def ensure_bgr_32(img):
+        if img is None: return np.zeros((32,32,3), np.uint8)
+        
+        # If float (from some preproc?), convert
+        if img.dtype != np.uint8:
+            img = (img * 255).astype(np.uint8)
+            
+        resize = cv2.resize(img, REFERENCE_ICON_SIZE, interpolation=cv2.INTER_NEAREST)
+        if len(resize.shape) == 2:
+            resize = cv2.cvtColor(resize, cv2.COLOR_GRAY2BGR)
+        return resize
+
+    t_orig = ensure_bgr_32(target_img)
+    r_orig = ensure_bgr_32(ref_img)
+    t_proc = ensure_bgr_32(target_proc)
+    r_proc = ensure_bgr_32(ref_proc)
+    
+    # Visualization Layout
+    scale = 4
+    # Scale individual images first
+    def scale_up(img, s):
+        return cv2.resize(img, (img.shape[1]*s, img.shape[0]*s), interpolation=cv2.INTER_NEAREST)
+        
+    t_orig_s = scale_up(t_orig, scale)
+    r_orig_s = scale_up(r_orig, scale)
+    t_proc_s = scale_up(t_proc, scale)
+    r_proc_s = scale_up(r_proc, scale)
+    
+    sub_h, sub_w = t_orig_s.shape[:2]
+    
+    # Margins and spacing
+    margin_left = 100
+    margin_top = 40
+    gap = 10
+    
+    total_w = margin_left + sub_w + gap + sub_w + gap
+    total_h = margin_top + sub_h + gap + sub_h + gap + 40 # extra bottom margin for text
+    
+    canvas = np.zeros((total_h, total_w, 3), dtype=np.uint8)
+    
+    # Place images
+    # Top-Left (Target Original)
+    y1 = margin_top
+    x1 = margin_left
+    canvas[y1:y1+sub_h, x1:x1+sub_w] = t_orig_s
+    
+    # Top-Right (Ref Original)
+    y1 = margin_top
+    x2 = margin_left + sub_w + gap
+    canvas[y1:y1+sub_h, x2:x2+sub_w] = r_orig_s
+    
+    # Bottom-Left (Target Processed)
+    y2 = margin_top + sub_h + gap
+    x1 = margin_left
+    canvas[y2:y2+sub_h, x1:x1+sub_w] = t_proc_s
+    
+    # Bottom-Right (Ref Processed)
+    y2 = margin_top + sub_h + gap
+    x2 = margin_left + sub_w + gap
+    canvas[y2:y2+sub_h, x2:x2+sub_w] = r_proc_s
+    
+    # Draw Labels
+    font = cv2.FONT_HERSHEY_COMPLEX_SMALL
+    font_scale = 0.7
+    color = (255, 255, 255)
+    thickness = 1
+    
+    # Column Headers
+    cv2.putText(canvas, "TARGET", (margin_left + 10, margin_top - 10), font, font_scale, color, thickness)
+    cv2.putText(canvas, "MATCH", (margin_left + sub_w + gap + 10, margin_top - 10), font, font_scale, color, thickness)
+    
+    # Row Headers
+    cv2.putText(canvas, "ORIGINAL", (5, margin_top + sub_h // 2), font, font_scale, color, thickness)
+    cv2.putText(canvas, "PROCESSED", (5, margin_top + sub_h + gap + sub_h // 2), font, font_scale, color, thickness)
+    
+    # File Infos at bottom
+    cv2.putText(canvas, f"T: {target_name[:25]}", (5, total_h - 25), font, 0.6, (180, 180, 180), 1)
+    cv2.putText(canvas, f"M: {best_match_name}", (5, total_h - 10), font, 0.6, (180, 180, 180), 1)
+
+    out_path = os.path.join(output_dir, f"{algorithm}_{target_name}")
+    cv2.imwrite(out_path, canvas)
 
 
 def perform_grid_search():
@@ -503,6 +663,16 @@ for algorithm in args.algorithms:
             'similarity': highest_score
         })
         print(f"{target_name} -> {best_match} (score: {highest_score:.4f})")
+
+        if args.debug and best_match:
+            visualize_match(
+                target_name, 
+                target_img, 
+                best_match, 
+                ref_images_orig[best_match], 
+                algorithm, 
+                "data/debug/icon_matching_vis"
+            )
     
     # Save results to CSV
     results_file = f'scripts/processing-pipeline/{algorithm}_matching_results.csv'
