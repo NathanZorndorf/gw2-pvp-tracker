@@ -6,24 +6,24 @@ samples:
     red: 0
     blue: 0
   red_team:
-  - name: null
+  - name: Phantom Tithe
     profession: Antiquary
-  - name: null
+  - name: Zylo Tiamatus
     profession: Amalgam
-  - name: null
+  - name: X II Vampy Rawrs II
     profession: Evoker
-  - name: null
+  - name: Hirdunn
     profession: Luminary
-  - name: null
+  - name: B A B Y T H I E F
     profession: Antiquary
   blue_team:
-  - name: null
+  - name: Viking Bërserkër
     profession: Paragon
-  - name: null
+  - name: Evan Heaviside
     profession: Amalgam
-  - name: null
+  - name: Naruto Blast
     profession: Daredevil
-  - name: null
+  - name: Dito Drakengard
     profession: Luminary
-  - name: null
+  - name: Inoch Grayson
     profession: Luminary

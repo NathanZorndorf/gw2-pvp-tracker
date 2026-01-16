@@ -62,6 +62,9 @@ def test_easyocr_recognizes_all_names_unranked(folder, stats_recorder):
 
     # Record stats
     total = len(easy_results.name_results)
+    if total == 0:
+        pytest.skip(f"No name ground truth available for {folder.name}")
+
     correct_count = sum(1 for nr in easy_results.name_results if nr.get('correct'))
     stats_recorder.append({
         'category': 'Name Recognition',

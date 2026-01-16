@@ -8,22 +8,22 @@ samples:
   red_team:
   - name: Over Powered Necro
     profession: Ritualist
-  - name: Dark Nim
+  - name: Dirk Nim
     profession: Druid
   - name: Cute Angel Wings
     profession: Luminary
-  - name: null
+  - name: Páísa
     profession: Ritualist
   - name: Phantom Tithe
     profession: Antiquary
   blue_team:
-  - name: null
+  - name: Franbow Verlassen
     profession: Evoker
-  - name: null
+  - name: Bowborne
     profession: Galeshot
-  - name: null
+  - name: Dewdrop Pippy
     profession: Druid
-  - name: null
+  - name: Testosterone X
     profession: Luminary
-  - name: null
+  - name: DirtBàggins
     profession: Ritualist

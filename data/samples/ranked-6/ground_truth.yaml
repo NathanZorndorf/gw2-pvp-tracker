@@ -6,24 +6,24 @@ samples:
     red: 0
     blue: 0
   red_team:
-  - name: null
+  - name: Phantom Tithe
     profession: Antiquary
-  - name: null
+  - name: Over Powered Necro
     profession: Necromancer
-  - name: null
+  - name: Jake Demoni
     profession: Necromancer
-  - name: null
+  - name: Evan Heaviside
     profession: Amalgam
-  - name: null
+  - name: Vorthec
     profession: Engineer
   blue_team:
-  - name: null
+  - name: Sea King Dorian
     profession: Daredevil
-  - name: null
+  - name: The Death Giiver
     profession: Guardian
-  - name: null
+  - name: Teshiara
     profession: Spellbreaker
-  - name: null
+  - name: Zylo Tiamatus
     profession: Amalgam
-  - name: null
+  - name: Kneecrosis
     profession: Reaper
