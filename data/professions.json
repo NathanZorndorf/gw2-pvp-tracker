@@ -1,0 +1,94 @@
+{
+  "professions": [
+    {
+      "name": "Guardian",
+      "armor_class": "Heavy",
+      "elite_specializations": [
+        "Dragonhunter",
+        "Firebrand",
+        "Willbender",
+        "Luminary"
+      ]
+    },
+    {
+      "name": "Revenant",
+      "armor_class": "Heavy",
+      "elite_specializations": [
+        "Herald",
+        "Renegade",
+        "Vindicator",
+        "Conduit"
+      ]
+    },
+    {
+      "name": "Warrior",
+      "armor_class": "Heavy",
+      "elite_specializations": [
+        "Berserker",
+        "Spellbreaker",
+        "Bladesworn",
+        "Paragon"
+      ]
+    },
+    {
+      "name": "Engineer",
+      "armor_class": "Medium",
+      "elite_specializations": [
+        "Scrapper",
+        "Holosmith",
+        "Mechanist",
+        "Amalgam"
+      ]
+    },
+    {
+      "name": "Ranger",
+      "armor_class": "Medium",
+      "elite_specializations": [
+        "Druid",
+        "Soulbeast",
+        "Untamed",
+        "Galeshot"
+      ]
+    },
+    {
+      "name": "Thief",
+      "armor_class": "Medium",
+      "elite_specializations": [
+        "Daredevil",
+        "Deadeye",
+        "Specter",
+        "Antiquary"
+      ]
+    },
+    {
+      "name": "Elementalist",
+      "armor_class": "Light",
+      "elite_specializations": [
+        "Tempest",
+        "Weaver",
+        "Catalyst",
+        "Evoker"
+      ]
+    },
+    {
+      "name": "Mesmer",
+      "armor_class": "Light",
+      "elite_specializations": [
+        "Chronomancer",
+        "Mirage",
+        "Virtuoso",
+        "Troubadour"
+      ]
+    },
+    {
+      "name": "Necromancer",
+      "armor_class": "Light",
+      "elite_specializations": [
+        "Reaper",
+        "Scourge",
+        "Harbinger",
+        "Ritualist"
+      ]
+    }
+  ]
+}

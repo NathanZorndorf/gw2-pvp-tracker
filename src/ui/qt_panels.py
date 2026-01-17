@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QPixmap, QIcon
 from PySide6.QtCore import Qt, QSize, Signal
 import os
+import json
 from pathlib import Path
 
 # Re-import styles to ensure COLORS is defined
@@ -40,26 +41,75 @@ class ProfessionSelectorDialog(QDialog):
         self.layout = QGridLayout(self)
         self.selected_profession = None
         
-        icons_path = Path("data/reference-icons/icons-raw")
-        row, col = 0, 0
-        max_cols = 6
+        # Calculate paths relative to this file
+        root_path = Path(__file__).parents[2]
+        icons_path = root_path / "data/reference-icons/icons-raw"
+        json_path = root_path / "data/professions.json"
         
+        # Load professions structure
+        ordered_professions = []
+        try:
+            with open(json_path, 'r') as f:
+                data = json.load(f)
+                ordered_professions = data.get('professions', [])
+        except Exception as e:
+            print(f"Error loading professions.json: {e}")
+
+        # Map available icons
+        available_icons = {}
         if icons_path.exists():
-            for icon_file in sorted(icons_path.glob("*.png")):
-                prof_name = icon_file.stem
-                btn = QPushButton()
-                btn.setIcon(QIcon(str(icon_file)))
-                btn.setIconSize(QSize(32, 32))
-                btn.setToolTip(prof_name)
-                btn.setFlat(True)
-                btn.setCursor(Qt.PointingHandCursor)
-                btn.clicked.connect(lambda checked=False, p=prof_name: self.select_profession(p))
-                
-                self.layout.addWidget(btn, row, col)
+            for icon_file in icons_path.glob("*.png"):
+                available_icons[icon_file.stem] = icon_file
+
+        placed_icons = set()
+        current_row = 0
+
+        def create_btn(name, icon_file, r, c):
+            btn = QPushButton()
+            btn.setIcon(QIcon(str(icon_file)))
+            btn.setIconSize(QSize(32, 32))
+            btn.setToolTip(name)
+            btn.setFlat(True)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.clicked.connect(lambda checked=False, p=name: self.select_profession(p))
+            self.layout.addWidget(btn, r, c)
+
+        # 1. Place organized professions from JSON
+        for prof_entry in ordered_professions:
+            col = 0
+            
+            # Core profession
+            base_name = prof_entry['name']
+            if base_name in available_icons:
+                create_btn(base_name, available_icons[base_name], current_row, col)
+                placed_icons.add(base_name)
+            
+            col += 1
+            
+            # Elite specializations
+            for spec_name in prof_entry.get('elite_specializations', []):
+                if spec_name in available_icons:
+                    create_btn(spec_name, available_icons[spec_name], current_row, col)
+                    placed_icons.add(spec_name)
+                col += 1
+            
+            current_row += 1
+
+        # 2. Place any remaining icons that weren't in the JSON
+        remaining_keys = sorted([k for k in available_icons.keys() if k not in placed_icons and k != 'Unknown'])
+        
+        if remaining_keys:
+            if placed_icons:
+                current_row += 1 # Gap if needed, or just next row
+
+            col = 0
+            max_cols = 6
+            for name in remaining_keys:
+                create_btn(name, available_icons[name], current_row, col)
                 col += 1
                 if col >= max_cols:
                     col = 0
-                    row += 1
+                    current_row += 1
 
     def select_profession(self, profession):
         self.selected_profession = profession
