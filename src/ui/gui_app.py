@@ -32,9 +32,12 @@ from PySide6.QtGui import QPixmap, QIcon, QBrush, QColor
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 
+from analysis.win_rate_utils import get_display_win_rate
+from config import Config
 from database.models import Database
 from .qt_panels import WinRatePanel, RankingsWidget, ClickableLabel
 from .analytics_tab import AnalyticsWidget
+from .settings_tab import SettingsWidget
 from .styles import COLORS, get_stylesheet
 
 
@@ -381,12 +384,17 @@ class MatchAnalysisWidget(QWidget):
         parts = cursor.fetchall()
 
         players = []
+        config = Config()
         for p in parts:
             name = p[0]
             profession = p[1]
             team = p[2]
             is_user = bool(p[3])
-            win_rate, total = self.db.get_player_winrate(name)
+            wins, total = self.db.get_player_stats(name)
+            
+            # Apply display win rate (raw or bayesian)
+            win_rate = get_display_win_rate(wins, total, config.data)
+            
             players.append({
                 'name': name,
                 'profession': profession,
@@ -395,6 +403,10 @@ class MatchAnalysisWidget(QWidget):
                 'total_matches': total,
                 'is_user': is_user,
             })
+
+        self.analysis_panel.show_players(players)
+            
+            # Let me check get_player_winrate in src/database/models.py
 
         self.analysis_panel.show_players(players)
 
@@ -461,15 +473,27 @@ class MainWindow(QMainWindow):
         self.analytics_tab = AnalyticsWidget()
         self.database_tab = DatabaseWidget()
         self.rankings_tab = RankingsWidget()
+        self.settings_tab = SettingsWidget()
 
         self.tabs.addTab(self.match_analysis_tab, "Match Analysis")
         self.tabs.addTab(self.analytics_tab, "Analytics")
         self.tabs.addTab(self.database_tab, "Database")
         self.tabs.addTab(self.rankings_tab, "Rankings")
+        self.tabs.addTab(self.settings_tab, "Settings")
 
         self.tabs.currentChanged.connect(self.on_tab_changed)
+        
+        # Connect settings change to refresh all data
+        self.settings_tab.settingsChanged.connect(self.refresh_all_data)
 
         self.setCentralWidget(self.tabs)
+
+    def refresh_all_data(self):
+        """Refresh every tab to reflect newest settings/config."""
+        self.match_analysis_tab.refresh_data()
+        self.analytics_tab.refresh_data()
+        self.database_tab.refresh()
+        self.rankings_tab.refresh()
 
     def on_tab_changed(self, index):
         widget = self.tabs.widget(index)

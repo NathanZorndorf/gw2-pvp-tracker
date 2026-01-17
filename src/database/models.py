@@ -452,6 +452,25 @@ class Database:
         logger.info(f"Updated scores for match {match_id} and adjusted winner from {prev_winner} to {new_winner}")
         return True
 
+    def get_player_stats(self, char_name: str) -> Tuple[int, int]:
+        """
+        Get player global wins and total matches.
+
+        Returns:
+            Tuple of (wins, total_matches)
+        """
+        cursor = self.connection.cursor()
+        cursor.execute("""
+            SELECT global_wins, total_matches
+            FROM players
+            WHERE char_name = ?
+        """, (char_name,))
+
+        row = cursor.fetchone()
+        if row:
+            return (row[0] or 0, row[1] or 0)
+        return (0, 0)
+
     def get_player_winrate(self, char_name: str) -> Tuple[float, int]:
         """
         Get player win rate and total matches.

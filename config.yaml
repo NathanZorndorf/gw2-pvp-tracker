@@ -1,86 +1,73 @@
-# GW2 PvP Tracker Configuration
-
-# Screen Capture
 screen:
-  monitor: 0  # Primary monitor
-  capture_delay: 0.5  # Seconds to wait after hotkey press
-
-# Computer Vision
+  monitor: 0
+  capture_delay: 0.5
 cv:
   template_match_threshold: 0.7
-  highlight_hsv_lower: [20, 50, 50]
-  highlight_hsv_upper: [40, 255, 255]
+  highlight_hsv_lower:
+  - 20
+  - 50
+  - 50
+  highlight_hsv_upper:
+  - 40
+  - 255
+  - 255
   profession_match_threshold: 0.6
-  scales: [0.8, 0.9, 1.0, 1.1, 1.2]
-
-# OCR Settings
+  scales:
+  - 0.8
+  - 0.9
+  - 1.0
+  - 1.1
+  - 1.2
 ocr:
-  engine: "easyocr"  # "easyocr" (recommended) or "tesseract"
-  tesseract_path: "C:/Program Files/Tesseract-OCR/tesseract.exe"  # Windows default
-  name_psm: 7  # Single line mode (tesseract only)
+  engine: easyocr
+  tesseract_path: C:/Program Files/Tesseract-OCR/tesseract.exe
+  name_psm: 7
   score_psm: 7
-  score_whitelist: "0123456789"
-  name_whitelist: "AÀÁÂÃÄÅÆBCÇDÐEÈÉÊËFGHIÌÍÎÏJKLMNÑOÒÓÔÕÖØŒPQRSẞTUÙÚÛÜVWXYÝŸZaàáâãäåæbcçdðeèéêëfghiìíîïjklmnñoòóôõöøœpqrsßtuùúûüvwxyýÿzZABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyzÁáÉéÍíÓóÚúÀàÈèÌìÒòÙùÄäËëÏïÖöÜüÇçÑñæ. "
-  use_clahe: true  # CLAHE contrast enhancement (recommended for EasyOCR)
-  resize_factor: 2.0  # Scale factor for OCR preprocessing
-
-# Fuzzy Matching
+  score_whitelist: 0123456789
+  name_whitelist: "A\xC0\xC1\xC2\xC3\xC4\xC5\xC6BC\xC7D\xD0E\xC8\xC9\xCA\xCBFGHI\xCC\
+    \xCD\xCE\xCFJKLMN\xD1O\xD2\xD3\xD4\xD5\xD6\xD8\u0152PQRS\u1E9ETU\xD9\xDA\xDB\xDC\
+    VWXY\xDD\u0178Za\xE0\xE1\xE2\xE3\xE4\xE5\xE6bc\xE7d\xF0e\xE8\xE9\xEA\xEBfghi\xEC\
+    \xED\xEE\xEFjklmn\xF1o\xF2\xF3\xF4\xF5\xF6\xF8\u0153pqrs\xDFtu\xF9\xFA\xFB\xFC\
+    vwxy\xFD\xFFzZABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz\xC1\xE1\xC9\
+    \xE9\xCD\xED\xD3\xF3\xDA\xFA\xC0\xE0\xC8\xE8\xCC\xEC\xD2\xF2\xD9\xF9\xC4\xE4\xCB\
+    \xEB\xCF\xEF\xD6\xF6\xDC\xFC\xC7\xE7\xD1\xF1\xE6. "
+  use_clahe: true
+  resize_factor: 2.0
 fuzzy:
-  name_match_threshold: 80  # 0-100
-
-# Arena Type Detection Region (from arena_type_bounding_boxes.csv)
+  name_match_threshold: 80
 arena_type_detection:
   x: 1240
   y: 408
   width: 205
   height: 67
-
-# Database
 database:
-  path: "data/pvp_tracker.db"
+  path: data/pvp_tracker.db
   backup_on_startup: true
-
-# Hotkeys
 hotkeys:
-  match_start: "F8"
-  match_end: "F9"
-  exit: "esc"
-
-# Paths
+  match_start: F8
+  match_end: F9
+  exit: esc
 paths:
-  templates: "templates/"
-  screenshots: "screenshots/"
-  logs: "logs/"
-
-# Logging
+  templates: templates/
+  screenshots: screenshots/
+  logs: logs/
 logging:
-  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
-  file: "logs/app.log"
+  level: INFO
+  file: logs/app.log
   max_size_mb: 10
   backup_count: 5
-
-# UI
 ui:
   console_width: 60
   show_ascii_art: true
   color_enabled: true
-
-  # Win Rate Overlay Settings
   overlay:
-    enabled: true           # Show overlay on F8
-    style: "popup"          # "popup" (centered dialog)
-    width: 420              # Window width in pixels
-    auto_close_on_f9: true  # Close overlay when match ends
-    show_on_f8: true        # Show overlay when F8 is pressed
-
-# Roster Region Coordinates (Based on 3840x2160 4K full screen images)
-# NOTE: These are for 4K resolution. For 1080p, divide all values by 2.
-# Configuration derived from source CSVs (unranked-start-bounding-boxes.csv, ranked-start-bounding-boxes.csv, etc.)
+    enabled: true
+    style: popup
+    width: 420
+    auto_close_on_f9: true
+    show_on_f8: true
 roster_regions:
-  # Default arena type to use if auto-detection fails
-  default_arena: "unranked"
-
-  # Unranked Arena bounding boxes (from unranked-start-bounding-boxes.csv)
+  default_arena: unranked
   unranked:
     red_team_names:
       x_start: 1200
@@ -88,32 +75,27 @@ roster_regions:
       y_start: 712
       row_height: 58
       num_players: 5
-
     blue_team_names:
       x_start: 2038
       x_end: 2656
       y_start: 710
       row_height: 58
       num_players: 5
-
     red_score_box:
       x: 1702
       y: 588
       width: 207
       height: 109
-
     blue_score_box:
       x: 1939
       y: 588
       width: 211
       height: 109
-
     arena_type_box:
       x: 1240
       y: 443
       width: 216
       height: 67
-
     icon_regions:
       red_team:
         x: 1125
@@ -125,8 +107,6 @@ roster_regions:
         y: 710
         width: 66
         height: 291
-
-  # Ranked Arena bounding boxes (from ranked-start-bounding-boxes.csv / ranked-end-bounding-boxes.csv)
   ranked:
     red_team_names:
       x_start: 1192
@@ -134,32 +114,27 @@ roster_regions:
       y_start: 682
       row_height: 58
       num_players: 5
-
     blue_team_names:
       x_start: 2055
       x_end: 2670
       y_start: 678
       row_height: 58
       num_players: 5
-
     red_score_box:
       x: 1760
       y: 555
       width: 152
       height: 111
-
     blue_score_box:
       x: 1944
       y: 555
       width: 144
       height: 111
-
     arena_type_box:
       x: 1235
       y: 412
       width: 197
       height: 70
-
     icon_regions:
       red_team:
         x: 1124
@@ -171,28 +146,28 @@ roster_regions:
         y: 680
         width: 71
         height: 292
-
-# Profession Detection Settings
 profession_detection:
   enabled: true
-  matching_method: "template"  # Options: "template" (97.5% accuracy) or "chamfer"
-  reference_icons_path: "data/reference-icons/icons-white"
-  confidence_threshold: 0.2  # Low threshold - template matching scores range 0.2-0.8, many correct matches are 0.3-0.5
+  matching_method: template
+  reference_icons_path: data/reference-icons/icons-white
+  confidence_threshold: 0.2
   preprocessing:
     clahe_clip: 1.0
-    clahe_tile: [2, 2]
+    clahe_tile:
+    - 2
+    - 2
     canny_min: 50
     canny_max: 150
-
-# Debug Settings
 debug:
-  save_regions: true      # Save extracted regions as images for debugging
-  output_dir: "data/debug"  # Directory for debug images
-
-# Bold Text Detection Settings
+  save_regions: true
+  output_dir: data/debug
 bold_detection:
-  method: "composite"  # composite, stroke_width, edge_density, brightness
+  method: composite
   stroke_width_weight: 0.4
   edge_density_weight: 0.3
   brightness_weight: 0.3
-  confidence_threshold: 0.15  # Minimum difference to consider bold (0.0-1.0)
+  confidence_threshold: 0.15
+analytics:
+  win_rate_mode: bayesian
+  bayesian_confidence: 5.0
+  bayesian_mean: 50.0

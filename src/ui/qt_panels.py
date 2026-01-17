@@ -25,6 +25,8 @@ from pathlib import Path
 from .styles import COLORS, get_star_count, SYMBOLS, get_winrate_color, FONTS
 from .confidence import format_winrate
 from database.models import Database
+from config import Config
+from analysis.win_rate_utils import get_display_win_rate
 
 class ClickableLabel(QLabel):
     doubleClicked = Signal()
@@ -356,13 +358,17 @@ class RankingsWidget(QWidget):
         cursor = self.db.connection.cursor()
         cursor.execute("SELECT char_name, global_wins, global_losses, total_matches, most_played_profession FROM players ORDER BY total_matches DESC")
         rows = cursor.fetchall()
+        
+        config = Config()
 
         for row in rows:
             name = row[0]
             wins = row[1] or 0
             losses = row[2] or 0
             total = row[3] or 0
-            win_rate = (wins / total * 100) if total > 0 else 0.0
+            
+            # Apply Bayesian correction if enabled
+            win_rate = get_display_win_rate(wins, total, config.data)
 
             card = PlayerCardWidget(name, 'red', win_rate, total, False)
             self.inner_layout.addWidget(card)

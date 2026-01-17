@@ -24,6 +24,8 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 from vision.capture import ScreenCapture
 from config import Config
 from ui import WinRateOverlay, PlayerStats
+from analysis.win_rate_utils import get_display_win_rate
+from database.models import Database
 import logging
 
 # Setup logging
@@ -206,8 +208,13 @@ class LiveCapture:
                 self.detected_user_character = None
 
             # Fetch win rates for all players
+            config = Config()
             for player in self.detected_players:
-                win_rate, total_matches = db.get_player_winrate(player['name'])
+                wins, total_matches = db.get_player_stats(player['name'])
+                
+                # Apply display win rate (raw or bayesian)
+                win_rate = get_display_win_rate(wins, total_matches, config.data)
+                
                 player['win_rate'] = win_rate
                 player['total_matches'] = total_matches
                 player['is_user'] = (

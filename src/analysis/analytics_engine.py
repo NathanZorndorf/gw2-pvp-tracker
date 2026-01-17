@@ -2,12 +2,15 @@ import pandas as pd
 import sqlite3
 import logging
 from database.models import Database
+from .win_rate_utils import get_display_win_rate
+from config import Config
 
 logger = logging.getLogger(__name__)
 
 class AnalyticsEngine:
     def __init__(self):
         self.db = Database()
+        self.config = Config()
 
     def get_user_professions(self):
         """Get unique list of professions played by the user."""
@@ -112,6 +115,12 @@ class AnalyticsEngine:
         ).reset_index()
         
         stats.rename(columns={'enemy_prof': 'enemy_profession'}, inplace=True)
-        stats['win_rate'] = (stats['wins'] / stats['total']) * 100
+        
+        # Apply win rate calculation based on config
+        self.config = Config() # Reload config in case it changed
+        stats['win_rate'] = stats.apply(
+            lambda row: get_display_win_rate(row['wins'], row['total'], self.config.data),
+            axis=1
+        )
         
         return stats

@@ -3,15 +3,18 @@ Confidence/star rating calculation and display utilities.
 """
 
 from .styles import SYMBOLS, COLORS, get_star_count
+from analysis.win_rate_utils import get_display_win_rate
+from config import Config
 
 
-def get_stars_display(win_rate: float, total_matches: int) -> str:
+def get_stars_display(win_rate: float, total_matches: int, config_data: dict = None) -> str:
     """
     Generate star rating display string.
 
     Args:
         win_rate: Win rate percentage (0-100)
         total_matches: Number of matches played
+        config_data: Optional config data for Bayesian correction
 
     Returns:
         String with filled/empty stars (e.g., "★★★☆☆")
@@ -19,6 +22,7 @@ def get_stars_display(win_rate: float, total_matches: int) -> str:
     if total_matches == 0:
         return "-"
 
+    # Use win_rate as passed (caller should decide if it's already corrected)
     star_count = get_star_count(win_rate)
     filled = SYMBOLS['star_filled'] * star_count
     empty = SYMBOLS['star_empty'] * (5 - star_count)
