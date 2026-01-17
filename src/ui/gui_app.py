@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QInputDialog,
     QSizePolicy,
+    QLineEdit,
 )
 
 from PySide6.QtCore import Qt, QSize
@@ -43,20 +44,34 @@ class DatabaseWidget(QWidget):
         self.db = Database()
         self.layout = QVBoxLayout(self)
 
-        # Players Table
+        # Plalayout.addWidget(QLabel("Players"))
+        self.players_filter = QLineEdit()
+        self.players_filter.setPlaceholderText("Filter players...")
+        self.players_filter.textChanged.connect(lambda text: self.filter_table(self.players_table, text))
+        self.layout.addWidget(self.players_filter)
+        
         self.players_table = QTableWidget()
-        self.layout.addWidget(QLabel("Players"))
         self.layout.addWidget(self.players_table)
 
         # Matches Table
-        self.matches_table = QTableWidget()
         self.layout.addWidget(QLabel("Recent Matches"))
+        self.matches_filter = QLineEdit()
+        self.matches_filter.setPlaceholderText("Filter matches...")
+        self.matches_filter.textChanged.connect(lambda text: self.filter_table(self.matches_table, text))
+        self.layout.addWidget(self.matches_filter)
+
+        self.matches_table = QTableWidget()
         self.layout.addWidget(self.matches_table)
 
         # Participants Table (Row Level Detail)
+        self.layout.addWidget(QLabel("Match Participants (Detail)"))
+        self.participants_filter = QLineEdit()
+        self.participants_filter.setPlaceholderText("Filter participants...")
+        self.participants_filter.textChanged.connect(lambda text: self.filter_table(self.participants_table, text))
+        self.layout.addWidget(self.participants_filter)
+
         self.participants_table = QTableWidget()
         self.participants_table.itemChanged.connect(self.on_participant_changed)
-        self.layout.addWidget(QLabel("Match Participants (Detail)"))
         self.layout.addWidget(self.participants_table)
 
         btn_layout = QHBoxLayout()
@@ -71,6 +86,18 @@ class DatabaseWidget(QWidget):
         self.layout.addLayout(btn_layout)
 
         self.refresh()
+
+    def filter_table(self, table, text):
+        """Hides rows that don't match the filter text."""
+        text = text.lower()
+        for row in range(table.rowCount()):
+            match = False
+            for col in range(table.columnCount()):
+                item = table.item(row, col)
+                if item and text in item.text().lower():
+                    match = True
+                    break
+            table.setRowHidden(row, not match)
 
     def refresh(self):
         # Load players
@@ -91,6 +118,9 @@ class DatabaseWidget(QWidget):
                 item = QTableWidgetItem(str(v) if v is not None else "")
                 item.setFlags(item.flags() ^ Qt.ItemIsEditable)
                 self.players_table.setItem(r, c, item)
+        # Re-apply filter
+        if self.players_filter.text():
+            self.filter_table(self.players_table, self.players_filter.text())
 
     def refresh_matches(self):
         cursor = self.db.connection.cursor()
@@ -104,13 +134,16 @@ class DatabaseWidget(QWidget):
                 item = QTableWidgetItem(str(v) if v is not None else "")
                 item.setFlags(item.flags() ^ Qt.ItemIsEditable)
                 self.matches_table.setItem(r, c, item)
+        # Re-apply filter
+        if self.matches_filter.text():
+            self.filter_table(self.matches_table, self.matches_filter.text())
 
     def refresh_participants(self):
         self.participants_table.blockSignals(True)
         cursor = self.db.connection.cursor()
         # Join explicitly to show match context
         cursor.execute("""
-            SELECT mp.participant_id, m.match_id, m.timestamp, mp.char_name, mp.profession, mp.team_color, mp.is_user 
+            SELECT mp.participant_id, m.match_id, m.timestamp, m.map_name, mp.char_name, mp.profession, mp.team_color, mp.is_user 
             FROM match_participants mp
             JOIN matches m ON mp.match_id = m.match_id
             ORDER BY m.timestamp DESC
@@ -118,15 +151,16 @@ class DatabaseWidget(QWidget):
         """)
         rows = cursor.fetchall()
         
-        # Columns: ID, Date, Name, Profession, Team, Me
-        self.participants_table.setColumnCount(6)
-        self.participants_table.setHorizontalHeaderLabels(["Match ID", "Date", "Player", "Profession", "Team", "Me?"])
+        # Columns: ID, Date, Map, Name, Profession, Team, Me
+        self.participants_table.setColumnCount(7)
+        self.participants_table.setHorizontalHeaderLabels(["Match ID", "Date", "Map", "Player", "Profession", "Team", "Me?"])
         self.participants_table.setRowCount(len(rows))
         
         for r, row in enumerate(rows):
             participant_id = row['participant_id']
             match_id = row['match_id']
             ts = row['timestamp']
+            map_name = row['map_name']
             name = row['char_name']
             prof = row['profession']
             team = row['team_color']
@@ -142,15 +176,20 @@ class DatabaseWidget(QWidget):
             item_ts.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
             self.participants_table.setItem(r, 1, item_ts)
 
+            # Map (Read Only)
+            item_map = QTableWidgetItem(str(map_name) if map_name else "Unknown")
+            item_map.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            self.participants_table.setItem(r, 2, item_map)
+
             # Name (Editable)
             item_name = QTableWidgetItem(str(name))
             item_name.setData(Qt.UserRole, participant_id) 
-            self.participants_table.setItem(r, 2, item_name)
+            self.participants_table.setItem(r, 3, item_name)
 
             # Profession (Editable)
             item_prof = QTableWidgetItem(str(prof))
             item_prof.setData(Qt.UserRole, participant_id)
-            self.participants_table.setItem(r, 3, item_prof)
+            self.participants_table.setItem(r, 4, item_prof)
 
             # Team (Read Only)
             item_team = QTableWidgetItem(str(team))
@@ -160,23 +199,26 @@ class DatabaseWidget(QWidget):
                 item_team.setForeground(QBrush(QColor(COLORS.get('team_red', '#ff4444'))))
             elif team == 'blue':
                 item_team.setForeground(QBrush(QColor(COLORS.get('team_blue', '#4444ff'))))
-            self.participants_table.setItem(r, 4, item_team)
+            self.participants_table.setItem(r, 5, item_team)
 
             # Me? (Checkable)
             item_me = QTableWidgetItem()
             item_me.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
             item_me.setCheckState(Qt.Checked if is_user else Qt.Unchecked)
             item_me.setData(Qt.UserRole, participant_id)
-            self.participants_table.setItem(r, 5, item_me)
+            self.participants_table.setItem(r, 6, item_me)
             
             # Highlight user row
             if is_user:
-                for c in range(6):
+                for c in range(7):
                     item = self.participants_table.item(r, c)
                     if item:
                         item.setBackground(QColor(COLORS.get('bg_row_user', '#2a2a4a')))
 
         self.participants_table.blockSignals(False)
+        # Re-apply filter
+        if self.participants_filter.text():
+            self.filter_table(self.participants_table, self.participants_filter.text())
 
     def on_participant_changed(self, item):
         row = item.row()
@@ -189,17 +231,17 @@ class DatabaseWidget(QWidget):
         cursor = self.db.connection.cursor()
         
         try:
-            if col == 2: # Name
+            if col == 3: # Name
                 new_name = item.text()
                 # Ensure player exists
                 cursor.execute("INSERT OR IGNORE INTO players (char_name) VALUES (?)", (new_name,))
                 cursor.execute("UPDATE match_participants SET char_name = ? WHERE participant_id = ?", (new_name, participant_id))
             
-            elif col == 3: # Profession
+            elif col == 4: # Profession
                 new_prof = item.text()
                 cursor.execute("UPDATE match_participants SET profession = ? WHERE participant_id = ?", (new_prof, participant_id))
                 
-            elif col == 5: # Me?
+            elif col == 6: # Me?
                 is_checked = (item.checkState() == Qt.Checked)
                 cursor.execute("UPDATE match_participants SET is_user = ? WHERE participant_id = ?", (1 if is_checked else 0, participant_id))
 
