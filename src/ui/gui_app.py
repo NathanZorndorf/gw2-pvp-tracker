@@ -122,10 +122,34 @@ class MatchAnalysisWidget(QWidget):
         
         self.layout.addLayout(self.header_layout)
 
-        self.analysis_panel = WinRatePanel()
+        self.analysis_panel = WinRatePanel(on_profession_change=self.update_player_profession)
         self.layout.addWidget(self.analysis_panel)
 
         self.load_latest_match()
+
+    def update_player_profession(self, player_name, new_profession):
+        if not hasattr(self, 'current_match_id') or not self.current_match_id:
+            return
+            
+        try:
+            db = Database()
+            cursor = db.connection.cursor()
+            
+            # Update match_participants
+            cursor.execute("""
+                UPDATE match_participants 
+                SET profession = ? 
+                WHERE match_id = ? AND char_name = ?
+            """, (new_profession, self.current_match_id, player_name))
+            
+            db.connection.commit()
+            db.close()
+            
+            # Reload to refresh UI
+            self.load_latest_match()
+            
+        except Exception as e:
+            QMessageBox.warning(self, "Update Failed", f"Failed to update profession: {e}")
 
     def load_latest_match(self):
         db = Database()
@@ -136,6 +160,7 @@ class MatchAnalysisWidget(QWidget):
             
         match = recent[0]
         match_id = match['match_id']
+        self.current_match_id = match_id
         
         # Update status label with match info
         map_name = match.get('map_name', 'Unknown Map')

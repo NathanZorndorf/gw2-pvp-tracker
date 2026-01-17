@@ -227,7 +227,8 @@ class MatchProcessor:
         start_path: str,
         end_path: str,
         detected_user: Optional[Tuple[str, str]] = None,
-        map_name: Optional[str] = None
+        map_name: Optional[str] = None,
+        known_players: Optional[List[Dict]] = None
     ) -> Dict[str, Any]:
         """
         Main entry point: Extract all match data from screenshots.
@@ -237,6 +238,7 @@ class MatchProcessor:
             end_path: Path to match end screenshot
             detected_user: Optional (char_name, team) from F8 detection
             map_name: Optional map name override
+            known_players: Optional list of manually corrected player data from F8 overlay
 
         Returns:
             Dict with extracted data or error information
@@ -262,7 +264,12 @@ class MatchProcessor:
             red_score, blue_score = self._extract_scores(end_img, "end")
 
             # Extract all player names (from start screenshot for better accuracy)
-            if start_img is not None:
+            # If we have known players (from F8 overlay), use them but refresh winrates/stats if needed
+            # Or just use them as the source of truth for name/profession/team
+            if known_players:
+                logger.info("Using metadata from F8 overlay (manually verified/corrected)")
+                players_data = known_players
+            elif start_img is not None:
                 players_data = self._extract_all_players(start_img, "start")
             else:
                 players_data = self._extract_all_players(end_img, "end")

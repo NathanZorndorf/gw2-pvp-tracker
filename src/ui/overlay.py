@@ -4,12 +4,14 @@ Win rate overlay window for displaying player statistics.
 
 import tkinter as tk
 from tkinter import ttk
-from typing import List, Optional
+from typing import List, Optional, Callable, Dict
 import logging
+from pathlib import Path
+from PIL import Image, ImageTk
 
 from .styles import (
     COLORS, FONTS, OVERLAY_WIDTH, OVERLAY_MIN_HEIGHT,
-    PADDING_OUTER, PADDING_INNER, SECTION_SPACING
+    PADDING_OUTER, PADDING_INNER, SECTION_SPACING, ICON_SIZE
 )
 from .player_card import PlayerCard, PlayerStats
 
@@ -24,21 +26,51 @@ class WinRateOverlay:
     displaying all 10 players with their statistics.
     """
 
-    def __init__(self, root: Optional[tk.Tk] = None):
+    def __init__(self, root: Optional[tk.Tk] = None, on_profession_change: Optional[Callable[[int, str], None]] = None):
         """
         Initialize the overlay.
 
         Args:
             root: Optional existing Tk root. If None, creates hidden root.
+            on_profession_change: Callback when profession is manually changed (index, new_profession)
         """
         self._owns_root = root is None
         self.root = root or tk.Tk()
+        self.on_profession_change = on_profession_change
 
         if self._owns_root:
             self.root.withdraw()  # Hide the root window
 
         self.window: Optional[tk.Toplevel] = None
         self._player_cards: List[PlayerCard] = []
+        self._profession_icons: Dict[str, ImageTk.PhotoImage] = {}
+        self._load_profession_icons()
+
+    def _load_profession_icons(self):
+        """Load profession icons for UI."""
+        try:
+            icon_path = Path("data/reference-icons/icons-raw")
+            if not icon_path.exists():
+                logger.warning(f"Icon path not found: {icon_path}")
+                return
+
+            for file in icon_path.glob("*.png"):
+                try:
+                    name = file.stem
+                    img = Image.open(file)
+                    img = img.resize((ICON_SIZE, ICON_SIZE), Image.Resampling.LANCZOS)
+                    self._profession_icons[name] = ImageTk.PhotoImage(img)
+                except Exception as e:
+                    logger.warning(f"Failed to load icon {file}: {e}")
+            
+            # Add 'Unknown' icon placeholder
+            if 'Unknown' not in self._profession_icons:
+                 #Create a blank or question mark image
+                 img = Image.new('RGBA', (ICON_SIZE, ICON_SIZE), (0, 0, 0, 0))
+                 self._profession_icons['Unknown'] = ImageTk.PhotoImage(img)
+
+        except Exception as e:
+            logger.error(f"Failed to load icons: {e}")
 
     def show(self, players: List[PlayerStats]):
         """
@@ -88,7 +120,7 @@ class WinRateOverlay:
         """Configure the overlay window properties."""
         self.window.title("Match Analysis")
         self.window.configure(bg=COLORS['bg_main'])
-        self.window.resizable(False, False)
+        self.window.resizable(True, True)  # Allow resizing
 
         # Remove window decorations on Windows for cleaner look
         # Comment out if you want standard title bar
@@ -179,7 +211,12 @@ class WinRateOverlay:
 
         # Player cards
         for player in players:
-            card = PlayerCard(parent, player)
+            card = PlayerCard(
+                parent, 
+                player, 
+                profession_icons=self._profession_icons,
+                on_profession_change=self.on_profession_change
+            )
             card.pack(fill=tk.X, pady=1)
             self._player_cards.append(card)
 

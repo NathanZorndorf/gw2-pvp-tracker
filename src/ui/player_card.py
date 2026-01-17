@@ -5,7 +5,8 @@ Player card widget for displaying individual player stats.
 import tkinter as tk
 from tkinter import ttk
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, Dict, Callable
+from PIL import ImageTk
 
 from .styles import (
     COLORS, FONTS, ROW_HEIGHT, PADDING_INNER,
@@ -14,28 +15,36 @@ from .styles import (
 from .confidence import (
     get_stars_display, format_winrate, format_matches
 )
+from .profession_selector import ProfessionSelectorPopup
 
 
 @dataclass
 class PlayerStats:
     """Data class for player statistics."""
     name: str
+    profession: str         # Profession name
     team: str               # "red" or "blue"
     win_rate: float         # 0.0 - 100.0
     total_matches: int
     is_user: bool = False   # Highlight user's row
+    index: int = -1         # Index in the players list
 
 
 class PlayerCard(tk.Frame):
     """Widget displaying a single player's stats row."""
 
-    def __init__(self, parent, player: PlayerStats, **kwargs):
+    def __init__(self, parent, player: PlayerStats, 
+                 profession_icons: Optional[Dict[str, ImageTk.PhotoImage]] = None,
+                 on_profession_change: Optional[Callable[[int, str], None]] = None,
+                 **kwargs):
         """
         Initialize player card.
 
         Args:
             parent: Parent tkinter widget
             player: PlayerStats dataclass with player info
+            profession_icons: Dictionary of profession icons
+            on_profession_change: Callback for profession change
         """
         # Determine background color
         if player.is_user:
@@ -49,6 +58,9 @@ class PlayerCard(tk.Frame):
         self.pack_propagate(False)
 
         self.player = player
+        self.profession_icons = profession_icons
+        self.on_profession_change = on_profession_change
+
         self._create_widgets(bg_color)
 
     def _create_widgets(self, bg_color: str):
@@ -78,6 +90,25 @@ class PlayerCard(tk.Frame):
             width=6
         )
         stars_label.pack(side=tk.LEFT, padx=2)
+
+        # Profession Icon
+        if self.profession_icons:
+            icon_img = self.profession_icons.get(player.profession)
+            if not icon_img:
+                icon_img = self.profession_icons.get('Unknown')
+            
+            if icon_img:
+                prof_btn = tk.Button(
+                    self, 
+                    image=icon_img, 
+                    bg=bg_color, 
+                    activebackground=bg_color, 
+                    bd=0,
+                    command=self._on_icon_click
+                )
+                prof_btn.image = icon_img # Keep ref
+                # Pack near name
+                prof_btn.pack(side=tk.LEFT, padx=(2, 2))
 
         # Win rate percentage
         winrate_text = format_winrate(player.win_rate, player.total_matches)
@@ -128,3 +159,12 @@ class PlayerCard(tk.Frame):
             anchor='w'
         )
         name_label.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=PADDING_INNER)
+
+    def _on_icon_click(self):
+        """Handle profession icon click."""
+        if self.on_profession_change and self.profession_icons:
+            ProfessionSelectorPopup(
+                self.winfo_toplevel(),
+                self.profession_icons,
+                lambda p: self.on_profession_change(self.player.index, p)
+            )

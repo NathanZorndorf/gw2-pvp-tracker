@@ -10,14 +10,51 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QScrollArea,
     QPushButton,
+    QDialog,
+    QGridLayout,
 )
-from PySide6.QtGui import QPixmap
-from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap, QIcon
+from PySide6.QtCore import Qt, QSize
 import os
+from pathlib import Path
 
 from .styles import COLORS, get_star_count, SYMBOLS, get_winrate_color, FONTS
 from .confidence import format_winrate
 from database.models import Database
+
+
+class ProfessionSelectorDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Select Profession")
+        self.setStyleSheet(f"background: {COLORS['bg_main']}; color: {COLORS['text_primary']};")
+        self.layout = QGridLayout(self)
+        self.selected_profession = None
+        
+        icons_path = Path("data/reference-icons/icons-raw")
+        row, col = 0, 0
+        max_cols = 6
+        
+        if icons_path.exists():
+            for icon_file in sorted(icons_path.glob("*.png")):
+                prof_name = icon_file.stem
+                btn = QPushButton()
+                btn.setIcon(QIcon(str(icon_file)))
+                btn.setIconSize(QSize(32, 32))
+                btn.setToolTip(prof_name)
+                btn.setFlat(True)
+                btn.setCursor(Qt.PointingHandCursor)
+                btn.clicked.connect(lambda checked=False, p=prof_name: self.select_profession(p))
+                
+                self.layout.addWidget(btn, row, col)
+                col += 1
+                if col >= max_cols:
+                    col = 0
+                    row += 1
+
+    def select_profession(self, profession):
+        self.selected_profession = profession
+        self.accept()
 
 
 def stars_display(win_rate: float, total_matches: int) -> str:
@@ -31,7 +68,7 @@ def stars_display(win_rate: float, total_matches: int) -> str:
 
 
 class PlayerCardWidget(QWidget):
-    def __init__(self, name: str, team: str, win_rate: float, total_matches: int, is_user: bool = False, profession: str = None, parent=None):
+    def __init__(self, name: str, team: str, win_rate: float, total_matches: int, is_user: bool = False, profession: str = None, on_profession_change=None, parent=None):
         super().__init__(parent)
         self.name = name
         self.team = team
@@ -39,6 +76,7 @@ class PlayerCardWidget(QWidget):
         self.total_matches = total_matches
         self.is_user = is_user
         self.profession = profession
+        self.on_profession_change = on_profession_change
 
         self._init_ui()
 
@@ -70,16 +108,36 @@ class PlayerCardWidget(QWidget):
         matches.setStyleSheet(f"color: {COLORS['text_secondary']}; font-family: {FONTS['small'][0]}; font-size: {FONTS['small'][1]}px;")
         layout.addWidget(matches)
 
-        # Icon
+        # Icon (Clickable Button)
+        icon_btn = QPushButton()
+        icon_btn.setFixedSize(32, 32)
+        icon_btn.setFlat(True)
+        icon_btn.setCursor(Qt.PointingHandCursor)
+        
+        # Determine icon path
+        icon_path = None
         if self.profession:
-            # Profession names in DB are capitalized e.g. "Mesmer", filenames are "Mesmer.png"
-            icon_path = f"data/reference-icons/icons-raw/{self.profession}.png"
-            if os.path.exists(icon_path):
-                icon_label = QLabel()
-                pixmap = QPixmap(icon_path)
-                if not pixmap.isNull():
-                    icon_label.setPixmap(pixmap.scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-                    layout.addWidget(icon_label)
+            # Try raw icons first (colored)
+            p = Path(f"data/reference-icons/icons-raw/{self.profession}.png")
+            if p.exists():
+                icon_path = str(p)
+            else:
+                # Fallback to white or specific mapped name if needed
+                p = Path(f"data/reference-icons/icons-white/{self.profession}.png") 
+                if p.exists():
+                    icon_path = str(p)
+        
+        if icon_path:
+            icon_btn.setIcon(QIcon(icon_path))
+            icon_btn.setIconSize(QSize(24, 24))
+        else:
+            # Placeholder or Unknown
+            pass
+            
+        if self.on_profession_change:
+            icon_btn.clicked.connect(self.open_profession_selector)
+            
+        layout.addWidget(icon_btn)
 
         name = QLabel(self.name)
         name.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -99,12 +157,19 @@ class PlayerCardWidget(QWidget):
             f"background: {bg}; color: {COLORS['text_primary']}; border-radius:4px; border: 1px solid {COLORS['border']}; padding:4px;"
         )
 
+    def open_profession_selector(self):
+        dlg = ProfessionSelectorDialog(self)
+        if dlg.exec():
+            if dlg.selected_profession and self.on_profession_change:
+                self.on_profession_change(self.name, dlg.selected_profession)
+
 
 class WinRatePanel(QWidget):
     """Panel that mimics the overlay: side-by-side teams with PlayerCardWidget rows."""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, on_profession_change=None):
         super().__init__(parent)
+        self.on_profession_change = on_profession_change
         self.layout = QVBoxLayout(self)
         self.title = QLabel("Match Analysis")
         self.title.setAlignment(Qt.AlignCenter)
@@ -158,11 +223,27 @@ class WinRatePanel(QWidget):
         add_team_header(self.blue_column, "BLUE TEAM", COLORS['team_blue'])
 
         for p in red_players:
-            card = PlayerCardWidget(p.get('name', 'Unknown'), 'red', p.get('win_rate', 0.0), p.get('total_matches', 0), p.get('is_user', False), profession=p.get('profession'))
+            card = PlayerCardWidget(
+                p.get('name', 'Unknown'), 
+                'red', 
+                p.get('win_rate', 0.0), 
+                p.get('total_matches', 0), 
+                p.get('is_user', False), 
+                profession=p.get('profession'),
+                on_profession_change=self.on_profession_change
+            )
             self.red_column.addWidget(card)
 
         for p in blue_players:
-            card = PlayerCardWidget(p.get('name', 'Unknown'), 'blue', p.get('win_rate', 0.0), p.get('total_matches', 0), p.get('is_user', False), profession=p.get('profession'))
+            card = PlayerCardWidget(
+                p.get('name', 'Unknown'), 
+                'blue', 
+                p.get('win_rate', 0.0), 
+                p.get('total_matches', 0), 
+                p.get('is_user', False), 
+                profession=p.get('profession'),
+                on_profession_change=self.on_profession_change
+            )
             self.blue_column.addWidget(card)
 
 

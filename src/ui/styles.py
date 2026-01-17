@@ -3,14 +3,15 @@ UI styling constants for the win rate overlay.
 """
 
 # Window dimensions
-OVERLAY_WIDTH = 750  # Wider for side-by-side layout
-OVERLAY_MIN_HEIGHT = 320  # Shorter since teams are side by side
+OVERLAY_WIDTH = 900  # Wider for side-by-side layout and icons
+OVERLAY_MIN_HEIGHT = 450  # Taller for better visibility
 
 # Padding and spacing
-PADDING_OUTER = 15
-PADDING_INNER = 8
-ROW_HEIGHT = 32
-SECTION_SPACING = 10
+PADDING_OUTER = 20
+PADDING_INNER = 10
+ROW_HEIGHT = 40  # Taller rows for icons
+SECTION_SPACING = 15
+ICON_SIZE = 32 # Size of profession icons
 
 # Colors - Dark theme matching GW2 aesthetic
 COLORS = {
@@ -184,7 +185,6 @@ QLabel#summary_label {{
 /* Make checked map buttons visually distinct */
 QPushButton:checked {{
     outline: none;
-    box-shadow: none;
 }}
 
 """

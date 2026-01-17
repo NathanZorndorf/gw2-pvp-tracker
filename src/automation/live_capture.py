@@ -77,7 +77,10 @@ class LiveCapture:
         self.overlay_enabled = self.config.get('ui.overlay.enabled', True)
         self.overlay: Optional[WinRateOverlay] = None
         if self.overlay_enabled:
-            self.overlay = WinRateOverlay(self.root)
+            self.overlay = WinRateOverlay(
+                self.root, 
+                on_profession_change=self.update_player_profession
+            )
             logger.info("Win rate overlay initialized")
 
         # Pending overlay action (for thread-safe GUI updates)
@@ -147,6 +150,16 @@ class LiveCapture:
         except Exception as e:
             logger.error(f"Failed to capture match start: {e}")
             print(f"  -> ERROR: {e}\n")
+
+    def update_player_profession(self, index: int, profession: str):
+        """Update profession for a player (called from overlay)."""
+        if 0 <= index < len(self.detected_players):
+            old_prof = self.detected_players[index].get('profession', 'Unknown')
+            self.detected_players[index]['profession'] = profession
+            print(f"  -> Updated player {index} profession: {old_prof} -> {profession}")
+            
+            # Refresh overlay
+            self._pending_overlay_action = 'show'
 
     def capture_match_end(self):
         """Capture match end screenshot."""
@@ -245,13 +258,15 @@ class LiveCapture:
     def _build_player_stats(self) -> List[PlayerStats]:
         """Build PlayerStats list from detected players."""
         stats = []
-        for player in self.detected_players:
+        for idx, player in enumerate(self.detected_players):
             stats.append(PlayerStats(
                 name=player.get('name', 'Unknown'),
+                profession=player.get('profession', 'Unknown'),
                 team=player.get('team', 'red'),
                 win_rate=player.get('win_rate', 0.0),
                 total_matches=player.get('total_matches', 0),
-                is_user=player.get('is_user', False)
+                is_user=player.get('is_user', False),
+                index=idx
             ))
         return stats
 
@@ -281,7 +296,8 @@ class LiveCapture:
                 self.match_screenshots['start'],
                 self.match_screenshots['end'],
                 detected_user=self.detected_user_character,
-                map_name=self.selected_map
+                map_name=self.selected_map,
+                known_players=self.detected_players
             )
 
             # Display extraction results
