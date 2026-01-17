@@ -30,6 +30,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 
 from database.models import Database
 from .qt_panels import WinRatePanel, RankingsWidget
+from .analytics_tab import AnalyticsWidget
 from .styles import COLORS, get_stylesheet
 
 
@@ -179,6 +180,7 @@ class MainWindow(QMainWindow):
 
         tabs = QTabWidget()
         tabs.addTab(MatchAnalysisWidget(), "Match Analysis")
+        tabs.addTab(AnalyticsWidget(), "Analytics")
         tabs.addTab(DatabaseWidget(), "Database")
         tabs.addTab(RankingsWidget(), "Rankings")
 
