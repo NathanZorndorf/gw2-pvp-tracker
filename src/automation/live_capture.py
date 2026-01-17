@@ -60,6 +60,8 @@ class LiveCapture:
             print(f"Using selected map override: {self.selected_map}")
 
         self.config = Config()
+        self.screenshots_root = Path(self.config.get('paths.screenshots', 'screenshots'))
+        self.current_match_dir = None
         # Don't initialize ScreenCapture here - create new instance per capture
         self.running = True
         self.match_start_time = None
@@ -90,7 +92,7 @@ class LiveCapture:
         print("  F9  - Capture match END (press when match is over)")
         print("\nTips:")
         print("  - Open the scoreboard (default: Tab key) before pressing F8/F9")
-        print("  - Screenshots are saved to: screenshots/")
+        print("  - Screenshots are saved to: screenshots/match_YYYYMMDD_HHMMSS/")
         print("  - Files are named with timestamps for easy identification")
         if self.overlay_enabled:
             print("  - Win rate overlay will appear on F8 (close with X or ESC)")
@@ -114,8 +116,14 @@ class LiveCapture:
             # Small delay to ensure scoreboard is fully rendered
             time.sleep(0.3)
 
-            # Create new ScreenCapture instance (thread-safe)
-            capture = ScreenCapture()
+            # Create match folder if not already existing (not a retake)
+            if not self.match_screenshots["start"]:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                self.current_match_dir = self.screenshots_root / f"match_{timestamp}"
+                self.current_match_dir.mkdir(parents=True, exist_ok=True)
+
+            # Create new ScreenCapture instance using the match folder
+            capture = ScreenCapture(screenshots_dir=str(self.current_match_dir))
 
             # Capture full screen
             full_path = capture.capture_and_save_full("match_start")
@@ -152,8 +160,14 @@ class LiveCapture:
             # Small delay to ensure final scores are visible
             time.sleep(0.3)
 
-            # Create new ScreenCapture instance (thread-safe)
-            capture = ScreenCapture()
+            # Ensure we have a match folder (user might have skipped F8)
+            if not self.current_match_dir:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                self.current_match_dir = self.screenshots_root / f"match_{timestamp}"
+                self.current_match_dir.mkdir(parents=True, exist_ok=True)
+
+            # Create new ScreenCapture instance using the match folder
+            capture = ScreenCapture(screenshots_dir=str(self.current_match_dir))
 
             # Capture full screen
             full_path = capture.capture_and_save_full("match_end")
@@ -351,6 +365,7 @@ class LiveCapture:
                     # Reset
                     self.match_start_time = None
                     self.match_screenshots = {"start": None, "end": None}
+                    self.current_match_dir = None
                     self.detected_user_character = None
                     self.detected_players = []
 

@@ -111,26 +111,58 @@ def import_match(folder_path: str, db_path: str = "data/pvp_tracker.db"):
         return False
 
 
-def import_all_ranked(db_path: str = "data/pvp_tracker.db"):
-    """Import all matches from data/samples/ranked-* folders."""
+def import_all_samples(db_path: str = "data/pvp_tracker.db"):
+    """Import all matches from data/samples/ ranked and unranked folders."""
     samples_dir = Path("data/samples")
 
-    # Find all ranked folders
-    ranked_folders = sorted(samples_dir.glob("ranked-*"))
+    # Find all ranked and unranked folders
+    folders = sorted(list(samples_dir.glob("ranked-*")) + list(samples_dir.glob("unranked-*")))
 
-    if not ranked_folders:
-        print("No ranked-* folders found in data/samples/")
+    if not folders:
+        print("No ranked-* or unranked-* folders found in data/samples/")
         return
 
-    print(f"Found {len(ranked_folders)} ranked folders\n")
+    print(f"Found {len(folders)} sample folders\n")
 
     success_count = 0
-    for folder in ranked_folders:
+    for folder in folders:
         if import_match(str(folder), db_path):
             success_count += 1
         print()
 
-    print(f"Imported {success_count}/{len(ranked_folders)} matches successfully")
+    print(f"Imported {success_count}/{len(folders)} matches successfully")
+
+
+def bulk_import(root_path: str, db_path: str = "data/pvp_tracker.db"):
+    """Import all matches from any subdirectories in root_path."""
+    root = Path(root_path)
+
+    if not root.is_dir():
+        print(f"ERROR: Not a directory: {root}")
+        return
+
+    # Find all directories that contain both a match_start and match_end
+    match_folders = []
+    for folder in root.iterdir():
+        if folder.is_dir():
+            start_files = list(folder.glob("match_start_*.png"))
+            end_files = list(folder.glob("match_end_*.png"))
+            if start_files and end_files:
+                match_folders.append(folder)
+
+    if not match_folders:
+        print(f"No match folders (containing start/end screenshots) found in {root}")
+        return
+
+    print(f"Found {len(match_folders)} folders to import in {root}\n")
+
+    success_count = 0
+    for folder in match_folders:
+        if import_match(str(folder), db_path):
+            success_count += 1
+        print()
+
+    print(f"Imported {success_count}/{len(match_folders)} matches from {root}")
 
 
 def show_status(db_path: str = "data/pvp_tracker.db"):
@@ -169,9 +201,9 @@ def show_status(db_path: str = "data/pvp_tracker.db"):
 
 def main():
     parser = argparse.ArgumentParser(description="Database management for GW2 PvP Tracker")
-    parser.add_argument("command", choices=["clear", "import", "import-all", "status", "delete", "fix-score"],
+    parser.add_argument("command", choices=["clear", "import", "import-all", "bulk-import", "status", "delete", "fix-score"],
                         help="Command to run")
-    parser.add_argument("path", nargs="?", help="Path for import command")
+    parser.add_argument("path", nargs="?", help="Path for import or bulk-import command")
     parser.add_argument("--id", type=int, help="Match ID for delete or fix-score commands")
     parser.add_argument("--red", type=int, help="Red score for fix-score")
     parser.add_argument("--blue", type=int, help="Blue score for fix-score")
@@ -224,7 +256,14 @@ def main():
             db.close()
 
     elif args.command == "import-all":
-        import_all_ranked(args.db)
+        import_all_samples(args.db)
+
+    elif args.command == "bulk-import":
+        if not args.path:
+            print("ERROR: Please specify a root folder path")
+            print("Usage: python db_manage.py bulk-import <root_path>")
+            sys.exit(1)
+        bulk_import(args.path, args.db)
 
     elif args.command == "status":
         show_status(args.db)
