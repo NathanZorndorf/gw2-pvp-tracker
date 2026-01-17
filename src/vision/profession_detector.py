@@ -34,13 +34,15 @@ class ProfessionDetector:
         self.clahe_tile = tuple(preproc.get('clahe_tile', [2, 2]))
         self.canny_min = preproc.get('canny_min', 50)
         self.canny_max = preproc.get('canny_max', 150)
+        self.matching_method = config.get('profession_detection.matching_method', 'template')
         self.confidence_threshold = config.get('profession_detection.confidence_threshold', 0.5)
 
         # Load and preprocess reference icons
         self.reference_icons: Dict[str, np.ndarray] = {}
+        self.reference_dist_maps: Dict[str, np.ndarray] = {}
         if self.enabled:
             self._load_reference_icons()
-            logger.info(f"Loaded {len(self.reference_icons)} reference profession icons")
+            logger.info(f"Loaded {len(self.reference_icons)} reference profession icons (method: {self.matching_method})")
 
     def _load_reference_icons(self) -> None:
         """Load and preprocess all reference icons from icons-white directory."""
@@ -68,6 +70,20 @@ class ProfessionDetector:
                 # Store with profession name (filename without extension)
                 profession_name = icon_file.stem
                 self.reference_icons[profession_name] = preprocessed
+
+                # If using chamfer matching, pre-calculate distance transform map
+                if self.matching_method == 'chamfer':
+                    # Convert to binary
+                    if len(preprocessed.shape) == 3:
+                        gray = cv2.cvtColor(preprocessed, cv2.COLOR_RGB2GRAY)
+                    else:
+                        gray = preprocessed
+                    
+                    _, binary = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
+                    # DIST_L2 distance transform. Distances are calculated from non-zero (white) pixels.
+                    # We want distances from edges, so we invert it.
+                    dist_map = cv2.distanceTransform(cv2.bitwise_not(binary), cv2.DIST_L2, 3)
+                    self.reference_dist_maps[profession_name] = dist_map
 
             except Exception as e:
                 logger.error(f"Error loading reference icon {icon_file}: {e}")
@@ -107,7 +123,7 @@ class ProfessionDetector:
 
         return canvas
 
-    def _preprocess_icon(self, icon: np.ndarray) -> np.ndarray:
+    def _preprocess_icon(self, icon: np.ndarray, target_size: Optional[Tuple[int, int]] = None) -> np.ndarray:
         """
         Apply CLAHE + Canny preprocessing pipeline.
 
@@ -117,19 +133,23 @@ class ProfessionDetector:
 
         Args:
             icon: Input icon image
+            target_size: Optional target size override (width, height). 
+                        Defaults to REFERENCE_ICON_SIZE if None.
 
         Returns:
             Preprocessed icon (RGB format for consistency)
         """
+        if target_size is None:
+            target_size = self.REFERENCE_ICON_SIZE
+
         # 1. Convert to grayscale
         if len(icon.shape) == 3:
             gray = cv2.cvtColor(icon, cv2.COLOR_BGR2GRAY)
         else:
             gray = icon.copy()
 
-        # 2. Resize to 32x32 with aspect-ratio-preserving letterbox
-        gray = cv2.resize(gray, self.REFERENCE_ICON_SIZE, interpolation=cv2.INTER_AREA)
-        gray = self._letterbox_image(gray, self.REFERENCE_ICON_SIZE)
+        # 2. Resize with aspect-ratio-preserving letterbox
+        gray = self._letterbox_image(gray, target_size)
 
         # 3. Apply CLAHE for contrast enhancement
         clahe = cv2.createCLAHE(clipLimit=self.clahe_clip, tileGridSize=self.clahe_tile)
@@ -138,7 +158,15 @@ class ProfessionDetector:
         # 4. Extract edges with Canny
         edges = cv2.Canny(enhanced, self.canny_min, self.canny_max)
 
-        # 5. Convert back to RGB for template matching consistency
+        # 5. Apply circular mask to remove corner noise
+        h, w = edges.shape[:2]
+        mask = np.zeros((h, w), dtype=np.uint8)
+        center = (w // 2, h // 2)
+        radius = min(w, h) // 2
+        cv2.circle(mask, center, radius, 255, -1)
+        edges = cv2.bitwise_and(edges, edges, mask=mask)
+
+        # 6. Convert back to RGB for template matching consistency
         rgb = cv2.cvtColor(edges, cv2.COLOR_GRAY2RGB)
 
         return rgb
@@ -238,6 +266,42 @@ class ProfessionDetector:
 
         return float(max_val)
 
+    def _match_chamfer(self, target: np.ndarray, pref_dist_map: np.ndarray) -> float:
+        """
+        Compare target icon against reference distance map using Chamfer matching.
+
+        Args:
+            target: Preprocessed target icon (RGB)
+            pref_dist_map: Distance transform map of reference icon
+
+        Returns:
+            Similarity score normalized to (0.0 to 1.0), higher is better
+        """
+        # 1. Convert target to binary edges
+        if len(target.shape) == 3:
+            target_gray = cv2.cvtColor(target, cv2.COLOR_RGB2GRAY)
+        else:
+            target_gray = target
+        
+        _, binary = cv2.threshold(target_gray, 1, 255, cv2.THRESH_BINARY)
+        
+        # 2. Sum distances for all edge pixels in target
+        edge_pixels = binary > 0
+        num_edge_pixels = np.sum(edge_pixels)
+        
+        if num_edge_pixels == 0:
+            return 0.0
+            
+        total_distance = np.sum(pref_dist_map[edge_pixels])
+        avg_distance = total_distance / num_edge_pixels
+        
+        # 3. Normalize to 0.0-1.0 (Exp decay or simple inverse)
+        # Using 1 / (1 + avg_distance) so a perfect match (avg=0) is 1.0
+        # and avg distance of 1px is 0.5, 2px is 0.33, etc.
+        similarity = 1.0 / (1.0 + (avg_distance * 0.5)) # Scaled slightly to be more forgiving
+        
+        return float(similarity)
+
     def detect_professions(
         self,
         image: np.ndarray,
@@ -280,14 +344,20 @@ class ProfessionDetector:
             # Process each icon
             for icon_img, team, player_idx in icon_regions:
                 # Preprocess target icon
-                preprocessed = self._preprocess_icon(icon_img)
+                # We use a slightly larger 36x36 window for the target to allow 
+                # template matching to find the best alignment (translation robust)
+                search_size = (36, 36) if self.matching_method == 'template' else self.REFERENCE_ICON_SIZE
+                preprocessed = self._preprocess_icon(icon_img, target_size=search_size)
 
                 # Match against all reference icons
                 best_profession = 'Unknown'
                 best_score = 0.0
 
                 for profession_name, ref_icon in self.reference_icons.items():
-                    score = self._match_template(preprocessed, ref_icon)
+                    if self.matching_method == 'chamfer' and profession_name in self.reference_dist_maps:
+                        score = self._match_chamfer(preprocessed, self.reference_dist_maps[profession_name])
+                    else:
+                        score = self._match_template(preprocessed, ref_icon)
 
                     if score > best_score:
                         best_score = score

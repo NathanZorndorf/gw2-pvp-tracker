@@ -175,6 +175,7 @@ roster_regions:
 # Profession Detection Settings
 profession_detection:
   enabled: true
+  matching_method: "template"  # Options: "template" (97.5% accuracy) or "chamfer"
   reference_icons_path: "data/reference-icons/icons-white"
   confidence_threshold: 0.2  # Low threshold - template matching scores range 0.2-0.8, many correct matches are 0.3-0.5
   preprocessing:

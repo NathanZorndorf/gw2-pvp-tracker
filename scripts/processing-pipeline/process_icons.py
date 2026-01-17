@@ -41,7 +41,7 @@ except ImportError:
 REFERENCE_ICON_SIZE = (32, 32)
 
 parser = argparse.ArgumentParser(description='Icon matching algorithms comparison')
-parser.add_argument('--algorithms', nargs='+', choices=['template', 'sift', 'orb', 'cnn', 'all'], default=['template'],
+parser.add_argument('--algorithms', nargs='+', choices=['template', 'sift', 'orb', 'cnn', 'chamfer', 'all'], default=['template'],
                     help='Algorithms to run (default: template)')
 parser.add_argument('--template-method', choices=['TM_CCOEFF_NORMED', 'TM_CCORR_NORMED', 'TM_SQDIFF_NORMED'], 
                     default='TM_CCOEFF_NORMED', help='Template matching method')
@@ -142,7 +142,7 @@ def extract_icons_from_rectangles(samples_dir, output_dir):
             print(f"Error processing {image_path}: {str(e)}")
 
 if 'all' in args.algorithms:
-    args.algorithms = ['template', 'sift', 'orb', 'cnn']
+    args.algorithms = ['template', 'sift', 'orb', 'cnn', 'chamfer']
 
 # Grid search parameters for template matching optimization
 TEMPLATE_METHODS = ['TM_CCOEFF_NORMED', 'TM_CCORR_NORMED', 'TM_SQDIFF_NORMED']
@@ -498,14 +498,45 @@ def match_cnn(target_tensor, ref_tensor, model):
     cos_sim = torch.nn.functional.cosine_similarity(target_feat, ref_feat, dim=0)
     return cos_sim.item()
 
-def visualize_match(target_name, target_img, best_match_name, ref_img, algorithm, output_dir):
+def match_chamfer(target_proc, ref_dist_map):
+    """Chamfer distance matching similarity"""
+    # 1. Convert target to binary edges
+    if len(target_proc.shape) == 3:
+        target_gray = cv2.cvtColor(target_proc, cv2.COLOR_RGB2GRAY)
+    else:
+        target_gray = target_proc
+    
+    _, binary = cv2.threshold(target_gray, 1, 255, cv2.THRESH_BINARY)
+    
+    # 2. Sum distances for all edge pixels in target
+    edge_pixels = binary > 0
+    num_edge_pixels = np.sum(edge_pixels)
+    
+    if num_edge_pixels == 0:
+        return 0.0
+        
+    total_distance = np.sum(ref_dist_map[edge_pixels])
+    avg_distance = total_distance / num_edge_pixels
+    
+    # Normalize to 0.0-1.0 (matching ProfessionDetector logic)
+    similarity = 1.0 / (1.0 + (avg_distance * 0.5))
+    return float(similarity)
+
+def visualize_match(target_name, target_img, best_match_name, ref_img, algorithm, output_dir, target_proc_in=None, ref_proc_in=None):
     """Visualize and save the match comparison"""
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
         
-    # Get processed versions based on algorithm
-    target_proc = preprocess_target_icon_for_feature_matching(target_img)
-    ref_proc = preprocess_reference_icon_for_feature_matching(ref_img)
+    # Get processed versions
+    if target_proc_in is not None:
+        target_proc = target_proc_in
+    else:
+        target_proc = preprocess_target_icon_for_feature_matching(target_img)
+
+    if ref_proc_in is not None:
+        ref_proc = ref_proc_in
+    else:
+        ref_proc = preprocess_reference_icon_for_feature_matching(ref_img)
     
     # helper to ensure BGR and size
     def ensure_bgr_32(img):
@@ -792,37 +823,63 @@ for algorithm in args.algorithms:
             ref_features[name] = feat
         
         print("CNN features computed!")
-    
+
+    # Precompute Distance Maps if using Chamfer
+    ref_dist_maps = {}
+    if algorithm == 'chamfer':
+        print("Precomputing distance maps for Chamfer matching...")
+        for name, img in ref_images_orig.items():
+            # Match the Canny pipeline used in ProfessionDetector
+            proc = target_icon_pre_processing_pipeline(img, use_mask_circular=True)
+            gray = cv2.cvtColor(proc, cv2.COLOR_RGB2GRAY)
+            _, binary = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
+            dist_map = cv2.distanceTransform(cv2.bitwise_not(binary), cv2.DIST_L2, 3)
+            ref_dist_maps[name] = dist_map
+
     results = []
     
     for target_name, target_img in target_images_orig.items():
         matches = []
         
+        # Determine target preprocessing once per algorithm
+        if algorithm == 'template':
+            # Use translation-robust style if template is selected
+            # Extract a 36x36 window for target to allow 32x32 template to slide
+            target_proc = target_icon_pre_processing_pipeline(
+                target_img, 
+                clahe_clip=1.0, clahe_tile=(2,2),
+                interpolation=cv2.INTER_AREA,
+                use_bilateral=args.bilateral, 
+                use_mask_circular=args.mask_circular, 
+                use_morph_closing=args.morph_closing
+            )
+            # Re-resize target to 36x36 for search area
+            target_proc_search = cv2.resize(target_proc, (36, 36), interpolation=cv2.INTER_AREA)
+        elif algorithm == 'chamfer':
+            target_proc = target_icon_pre_processing_pipeline(
+                target_img, 
+                use_mask_circular=True
+            )
+        elif algorithm in ['sift', 'orb']:
+            target_proc = preprocess_target_icon_for_feature_matching(target_img)
+        
         for ref_name, ref_img in ref_images_orig.items():
             if algorithm == 'template':
-                # Preprocess for template
-                target_proc = preprocess_target_icon_for_feature_matching(target_img)
-                ref_proc = preprocess_reference_icon_for_feature_matching(ref_img)
-                # target_proc = target_icon_pre_processing_pipeline(
-                #     target_img, 
-                #     use_bilateral=args.bilateral, 
-                #     use_mask_circular=args.mask_circular, 
-                #     use_morph_closing=args.morph_closing
-                # )
-                # ref_proc = target_icon_pre_processing_pipeline(
-                #     ref_img, 
-                #     use_bilateral=args.bilateral, 
-                #     use_mask_circular=args.mask_circular, 
-                #     use_morph_closing=args.morph_closing
-                # )
+                ref_proc = target_icon_pre_processing_pipeline(
+                    ref_img, 
+                    use_bilateral=args.bilateral, 
+                    use_mask_circular=args.mask_circular, 
+                    use_morph_closing=args.morph_closing
+                )
                 method = getattr(cv2, args.template_method)
-                score = match_template(target_proc, ref_proc, method)
+                # Use the 36x36 search area for the target
+                score = match_template(target_proc_search, ref_proc, method)
+            elif algorithm == 'chamfer':
+                score = match_chamfer(target_proc, ref_dist_maps[ref_name])
             elif algorithm == 'sift':
-                target_proc = preprocess_target_icon_for_feature_matching(target_img)
                 ref_proc = preprocess_reference_icon_for_feature_matching(ref_img)
                 score = match_sift(target_proc, ref_proc)
             elif algorithm == 'orb':
-                target_proc = preprocess_target_icon_for_feature_matching(target_img)
                 ref_proc = preprocess_reference_icon_for_feature_matching(ref_img)
                 score = match_orb(target_proc, ref_proc)
             elif algorithm == 'cnn':
@@ -840,6 +897,21 @@ for algorithm in args.algorithms:
         
         best_match = top_matches[0][0] if top_matches else None
         
+        # Prepare processed ref for visualization if template
+        ref_proc_vis = None
+        if algorithm == 'template' and best_match:
+            ref_proc_vis = target_icon_pre_processing_pipeline(
+                ref_images_orig[best_match], 
+                use_bilateral=args.bilateral, 
+                use_mask_circular=args.mask_circular, 
+                use_morph_closing=args.morph_closing
+            )
+        elif algorithm == 'chamfer' and best_match:
+            ref_proc_vis = target_icon_pre_processing_pipeline(
+                ref_images_orig[best_match], 
+                use_mask_circular=True
+            )
+
         for rank, (match_name, score) in enumerate(top_matches, 1):
             results.append({
                 'target': target_name,
@@ -855,8 +927,11 @@ for algorithm in args.algorithms:
                 best_match, 
                 ref_images_orig[best_match], 
                 algorithm, 
-                "scripts/processing-pipeline/debug/icon_matching_vis"
+                "scripts/processing-pipeline/debug/icon_matching_vis",
+                target_proc_in=target_proc if algorithm in ['template', 'chamfer'] else None,
+                ref_proc_in=ref_proc_vis
             )
+    
     
     # Save results to CSV
     results_file = f'scripts/processing-pipeline/{algorithm}_matching_results.csv'
