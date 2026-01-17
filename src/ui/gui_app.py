@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QPixmap, QIcon
+from PySide6.QtGui import QPixmap, QIcon, QBrush, QColor
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
@@ -53,6 +53,12 @@ class DatabaseWidget(QWidget):
         self.layout.addWidget(QLabel("Recent Matches"))
         self.layout.addWidget(self.matches_table)
 
+        # Participants Table (Row Level Detail)
+        self.participants_table = QTableWidget()
+        self.participants_table.itemChanged.connect(self.on_participant_changed)
+        self.layout.addWidget(QLabel("Match Participants (Detail)"))
+        self.layout.addWidget(self.participants_table)
+
         btn_layout = QHBoxLayout()
         refresh_btn = QPushButton("Refresh")
         refresh_btn.clicked.connect(self.refresh)
@@ -68,6 +74,11 @@ class DatabaseWidget(QWidget):
 
     def refresh(self):
         # Load players
+        self.refresh_players()
+        self.refresh_matches()
+        self.refresh_participants()
+
+    def refresh_players(self):
         cursor = self.db.connection.cursor()
         cursor.execute("SELECT char_name, global_wins, global_losses, total_matches, most_played_profession FROM players ORDER BY total_matches DESC LIMIT 200")
         rows = cursor.fetchall()
@@ -81,7 +92,8 @@ class DatabaseWidget(QWidget):
                 item.setFlags(item.flags() ^ Qt.ItemIsEditable)
                 self.players_table.setItem(r, c, item)
 
-        # Load recent matches
+    def refresh_matches(self):
+        cursor = self.db.connection.cursor()
         cursor.execute("SELECT match_id, timestamp, red_score, blue_score, map_name, winning_team, user_char_name FROM matches ORDER BY timestamp DESC LIMIT 200")
         rows = cursor.fetchall()
         self.matches_table.setColumnCount(7)
@@ -92,6 +104,110 @@ class DatabaseWidget(QWidget):
                 item = QTableWidgetItem(str(v) if v is not None else "")
                 item.setFlags(item.flags() ^ Qt.ItemIsEditable)
                 self.matches_table.setItem(r, c, item)
+
+    def refresh_participants(self):
+        self.participants_table.blockSignals(True)
+        cursor = self.db.connection.cursor()
+        # Join explicitly to show match context
+        cursor.execute("""
+            SELECT mp.participant_id, m.match_id, m.timestamp, mp.char_name, mp.profession, mp.team_color, mp.is_user 
+            FROM match_participants mp
+            JOIN matches m ON mp.match_id = m.match_id
+            ORDER BY m.timestamp DESC
+            LIMIT 500
+        """)
+        rows = cursor.fetchall()
+        
+        # Columns: ID, Date, Name, Profession, Team, Me
+        self.participants_table.setColumnCount(6)
+        self.participants_table.setHorizontalHeaderLabels(["Match ID", "Date", "Player", "Profession", "Team", "Me?"])
+        self.participants_table.setRowCount(len(rows))
+        
+        for r, row in enumerate(rows):
+            participant_id = row['participant_id']
+            match_id = row['match_id']
+            ts = row['timestamp']
+            name = row['char_name']
+            prof = row['profession']
+            team = row['team_color']
+            is_user = bool(row['is_user'])
+
+            # Match ID (Read Only)
+            item_mid = QTableWidgetItem(str(match_id))
+            item_mid.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            self.participants_table.setItem(r, 0, item_mid)
+
+            # Date (Read Only)
+            item_ts = QTableWidgetItem(str(ts))
+            item_ts.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            self.participants_table.setItem(r, 1, item_ts)
+
+            # Name (Editable)
+            item_name = QTableWidgetItem(str(name))
+            item_name.setData(Qt.UserRole, participant_id) 
+            self.participants_table.setItem(r, 2, item_name)
+
+            # Profession (Editable)
+            item_prof = QTableWidgetItem(str(prof))
+            item_prof.setData(Qt.UserRole, participant_id)
+            self.participants_table.setItem(r, 3, item_prof)
+
+            # Team (Read Only)
+            item_team = QTableWidgetItem(str(team))
+            item_team.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            # Color code team
+            if team == 'red':
+                item_team.setForeground(QBrush(QColor(COLORS.get('team_red', '#ff4444'))))
+            elif team == 'blue':
+                item_team.setForeground(QBrush(QColor(COLORS.get('team_blue', '#4444ff'))))
+            self.participants_table.setItem(r, 4, item_team)
+
+            # Me? (Checkable)
+            item_me = QTableWidgetItem()
+            item_me.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable | Qt.ItemIsUserCheckable)
+            item_me.setCheckState(Qt.Checked if is_user else Qt.Unchecked)
+            item_me.setData(Qt.UserRole, participant_id)
+            self.participants_table.setItem(r, 5, item_me)
+            
+            # Highlight user row
+            if is_user:
+                for c in range(6):
+                    item = self.participants_table.item(r, c)
+                    if item:
+                        item.setBackground(QColor(COLORS.get('bg_row_user', '#2a2a4a')))
+
+        self.participants_table.blockSignals(False)
+
+    def on_participant_changed(self, item):
+        row = item.row()
+        col = item.column()
+        participant_id = item.data(Qt.UserRole)
+        
+        if participant_id is None:
+            return
+
+        cursor = self.db.connection.cursor()
+        
+        try:
+            if col == 2: # Name
+                new_name = item.text()
+                # Ensure player exists
+                cursor.execute("INSERT OR IGNORE INTO players (char_name) VALUES (?)", (new_name,))
+                cursor.execute("UPDATE match_participants SET char_name = ? WHERE participant_id = ?", (new_name, participant_id))
+            
+            elif col == 3: # Profession
+                new_prof = item.text()
+                cursor.execute("UPDATE match_participants SET profession = ? WHERE participant_id = ?", (new_prof, participant_id))
+                
+            elif col == 5: # Me?
+                is_checked = (item.checkState() == Qt.Checked)
+                cursor.execute("UPDATE match_participants SET is_user = ? WHERE participant_id = ?", (1 if is_checked else 0, participant_id))
+
+            self.db.connection.commit()
+        except Exception as e:
+            QMessageBox.warning(self, "Update Failed", f"Could not update participant: {e}")
+            # Refresh to revert
+            self.refresh_participants()
 
     def delete_selected_match(self):
         selected = self.matches_table.currentRow()
@@ -297,13 +413,32 @@ class MainWindow(QMainWindow):
         self.capture_process: Optional[subprocess.Popen] = None
         self.start_live_capture()
 
-        tabs = QTabWidget()
-        tabs.addTab(MatchAnalysisWidget(), "Match Analysis")
-        tabs.addTab(AnalyticsWidget(), "Analytics")
-        tabs.addTab(DatabaseWidget(), "Database")
-        tabs.addTab(RankingsWidget(), "Rankings")
+        self.tabs = QTabWidget()
+        
+        self.match_analysis_tab = MatchAnalysisWidget()
+        self.analytics_tab = AnalyticsWidget()
+        self.database_tab = DatabaseWidget()
+        self.rankings_tab = RankingsWidget()
 
-        self.setCentralWidget(tabs)
+        self.tabs.addTab(self.match_analysis_tab, "Match Analysis")
+        self.tabs.addTab(self.analytics_tab, "Analytics")
+        self.tabs.addTab(self.database_tab, "Database")
+        self.tabs.addTab(self.rankings_tab, "Rankings")
+
+        self.tabs.currentChanged.connect(self.on_tab_changed)
+
+        self.setCentralWidget(self.tabs)
+
+    def on_tab_changed(self, index):
+        widget = self.tabs.widget(index)
+        if widget == self.match_analysis_tab:
+            self.match_analysis_tab.refresh_data()
+        elif widget == self.analytics_tab:
+            self.analytics_tab.refresh_data()
+        elif widget == self.database_tab:
+            self.database_tab.refresh()
+        elif widget == self.rankings_tab:
+            self.rankings_tab.refresh()
 
     def start_live_capture(self):
         # Launch live_capture.py as a subprocess
