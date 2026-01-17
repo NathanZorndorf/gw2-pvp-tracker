@@ -481,6 +481,7 @@ class Database:
                 red_score,
                 blue_score,
                 arena_type,
+                map_name,
                 winning_team,
                 user_team,
                 user_char_name

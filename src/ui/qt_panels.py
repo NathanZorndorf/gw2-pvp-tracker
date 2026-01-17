@@ -12,16 +12,25 @@ from PySide6.QtWidgets import (
     QPushButton,
     QDialog,
     QGridLayout,
+    QInputDialog,
+    QLineEdit,
 )
 from PySide6.QtGui import QPixmap, QIcon
-from PySide6.QtCore import Qt, QSize
+from PySide6.QtCore import Qt, QSize, Signal
 import os
 from pathlib import Path
 
+# Re-import styles to ensure COLORS is defined
 from .styles import COLORS, get_star_count, SYMBOLS, get_winrate_color, FONTS
 from .confidence import format_winrate
 from database.models import Database
 
+class ClickableLabel(QLabel):
+    doubleClicked = Signal()
+
+    def mouseDoubleClickEvent(self, event):
+        self.doubleClicked.emit()
+        super().mouseDoubleClickEvent(event)
 
 class ProfessionSelectorDialog(QDialog):
     def __init__(self, parent=None):
@@ -68,7 +77,7 @@ def stars_display(win_rate: float, total_matches: int) -> str:
 
 
 class PlayerCardWidget(QWidget):
-    def __init__(self, name: str, team: str, win_rate: float, total_matches: int, is_user: bool = False, profession: str = None, on_profession_change=None, parent=None):
+    def __init__(self, name: str, team: str, win_rate: float, total_matches: int, is_user: bool = False, profession: str = None, on_profession_change=None, on_name_change=None, parent=None):
         super().__init__(parent)
         self.name = name
         self.team = team
@@ -77,6 +86,7 @@ class PlayerCardWidget(QWidget):
         self.is_user = is_user
         self.profession = profession
         self.on_profession_change = on_profession_change
+        self.on_name_change = on_name_change
 
         self._init_ui()
 
@@ -139,12 +149,18 @@ class PlayerCardWidget(QWidget):
             
         layout.addWidget(icon_btn)
 
-        name = QLabel(self.name)
+        name = ClickableLabel(self.name)
         name.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         if self.is_user:
             name.setStyleSheet(f"font-weight: bold; color: {COLORS['text_header']}; font-family: {FONTS['player_name_user'][0]}; font-size: {FONTS['player_name_user'][1]}px;")
         else:
             name.setStyleSheet(f"color: {COLORS['text_primary']}; font-family: {FONTS['player_name'][0]}; font-size: {FONTS['player_name'][1]}px;")
+        
+        if self.on_name_change:
+            name.setToolTip("Double-click to edit name")
+            name.setCursor(Qt.PointingHandCursor)
+            name.doubleClicked.connect(self.edit_name)
+
         layout.addWidget(name)
 
         # Background color
@@ -163,13 +179,20 @@ class PlayerCardWidget(QWidget):
             if dlg.selected_profession and self.on_profession_change:
                 self.on_profession_change(self.name, dlg.selected_profession)
 
+    def edit_name(self):
+        new_name, ok = QInputDialog.getText(self, "Edit Player Name", "New Name:", text=self.name)
+        if ok and new_name and new_name != self.name:
+            if self.on_name_change:
+                self.on_name_change(self.name, new_name)
+
 
 class WinRatePanel(QWidget):
     """Panel that mimics the overlay: side-by-side teams with PlayerCardWidget rows."""
 
-    def __init__(self, parent=None, on_profession_change=None):
+    def __init__(self, parent=None, on_profession_change=None, on_name_change=None):
         super().__init__(parent)
         self.on_profession_change = on_profession_change
+        self.on_name_change = on_name_change
         self.layout = QVBoxLayout(self)
         self.title = QLabel("Match Analysis")
         self.title.setAlignment(Qt.AlignCenter)
@@ -230,7 +253,8 @@ class WinRatePanel(QWidget):
                 p.get('total_matches', 0), 
                 p.get('is_user', False), 
                 profession=p.get('profession'),
-                on_profession_change=self.on_profession_change
+                on_profession_change=self.on_profession_change,
+                on_name_change=self.on_name_change
             )
             self.red_column.addWidget(card)
 
@@ -242,7 +266,8 @@ class WinRatePanel(QWidget):
                 p.get('total_matches', 0), 
                 p.get('is_user', False), 
                 profession=p.get('profession'),
-                on_profession_change=self.on_profession_change
+                on_profession_change=self.on_profession_change,
+                on_name_change=self.on_name_change
             )
             self.blue_column.addWidget(card)
 

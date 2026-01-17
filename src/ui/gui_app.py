@@ -20,6 +20,9 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QScrollArea,
     QGridLayout,
+    QComboBox,
+    QInputDialog,
+    QSizePolicy,
 )
 
 from PySide6.QtCore import Qt, QSize
@@ -29,7 +32,7 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 
 from database.models import Database
-from .qt_panels import WinRatePanel, RankingsWidget
+from .qt_panels import WinRatePanel, RankingsWidget, ClickableLabel
 from .analytics_tab import AnalyticsWidget
 from .styles import COLORS, get_stylesheet
 
@@ -111,64 +114,111 @@ class MatchAnalysisWidget(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.layout = QVBoxLayout(self)
+        self.db = Database()
+        self.current_match_id = None
+        self.current_red_score = 0
+        self.current_blue_score = 0
 
+        # Header: Selector + Refresh
         self.header_layout = QHBoxLayout()
-        self.status_label = QLabel("Last Match Analysis")
-        self.header_layout.addWidget(self.status_label)
+        
+        self.match_selector = QComboBox()
+        self.match_selector.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.match_selector.currentIndexChanged.connect(self.on_match_selected)
+        self.header_layout.addWidget(self.match_selector)
         
         self.refresh_btn = QPushButton("Refresh")
-        self.refresh_btn.clicked.connect(self.load_latest_match)
+        self.refresh_btn.clicked.connect(self.refresh_data)
         self.header_layout.addWidget(self.refresh_btn)
         
         self.layout.addLayout(self.header_layout)
 
-        self.analysis_panel = WinRatePanel(on_profession_change=self.update_player_profession)
+        # Score Section
+        self.score_layout = QHBoxLayout()
+        self.score_layout.setAlignment(Qt.AlignCenter)
+        
+        # Display scores as plain labels (read-only)
+        self.red_score_btn = QLabel("Red: 0")
+        self.red_score_btn.setStyleSheet(f"color: {COLORS['team_red']}; font-weight: bold; font-size: 14px;")
+        
+        self.blue_score_btn = QLabel("Blue: 0")
+        self.blue_score_btn.setStyleSheet(f"color: {COLORS['team_blue']}; font-weight: bold; font-size: 14px;")
+        
+        self.score_layout.addWidget(self.red_score_btn)
+        self.score_layout.addWidget(QLabel("-", alignment=Qt.AlignCenter)) 
+        self.score_layout.addWidget(self.blue_score_btn)
+        
+        self.layout.addLayout(self.score_layout)
+
+        self.analysis_panel = WinRatePanel(
+            on_profession_change=self.update_player_profession,
+            on_name_change=self.update_player_name
+        )
         self.layout.addWidget(self.analysis_panel)
 
-        self.load_latest_match()
+        self.refresh_data()
 
-    def update_player_profession(self, player_name, new_profession):
-        if not hasattr(self, 'current_match_id') or not self.current_match_id:
-            return
+    def refresh_data(self):
+        current_id = self.match_selector.currentData()
+        
+        self.match_selector.blockSignals(True)
+        self.match_selector.clear()
+        
+        matches = self.db.get_recent_matches(50)
+        
+        index_to_set = 0
+        for i, m in enumerate(matches):
+            map_name = m.get('map_name', 'Unknown')
+            # Determine result from winning_team and user_team
+            # We need to fetch user_team if it's not in the dict returned by get_recent_matches
+            # Based on previous code: result = "Win" if (match['winning_team'] == match.get('user_team'))
+            user_team = m.get('user_team')
+            if not user_team:
+                # Fallback if query didn't return user_team (check query in db class later if needed)
+                # Assuming get_recent_matches returns user_team (it wasn't in the original select I saw earlier?)
+                # Wait, original select: SELECT match_id, timestamp, red_score, blue_score, map_name, winning_team, user_char_name
+                # It does NOT verify user_team column usage in get_recent_matches.
+                # I'll check if user_team is available. If not, can't determine win/loss easily without query.
+                # For UI list, I'll just show Match ID and Map.
+                result_str = ""
+            else:
+                 result_str = "[W]" if m['winning_team'] == user_team else "[L]"
             
-        try:
-            db = Database()
-            cursor = db.connection.cursor()
+            text = f"#{m['match_id']} {result_str} {map_name} ({m['timestamp']})"
+            self.match_selector.addItem(text, m['match_id'])
             
-            # Update match_participants
-            cursor.execute("""
-                UPDATE match_participants 
-                SET profession = ? 
-                WHERE match_id = ? AND char_name = ?
-            """, (new_profession, self.current_match_id, player_name))
-            
-            db.connection.commit()
-            db.close()
-            
-            # Reload to refresh UI
-            self.load_latest_match()
-            
-        except Exception as e:
-            QMessageBox.warning(self, "Update Failed", f"Failed to update profession: {e}")
+            if current_id and m['match_id'] == current_id:
+                index_to_set = i
+        
+        self.match_selector.setCurrentIndex(index_to_set)
+        self.match_selector.blockSignals(False)
+        
+        if self.match_selector.count() > 0:
+            self.on_match_selected(index_to_set)
+        else:
+             self.score_layout.setEnabled(False)
 
-    def load_latest_match(self):
-        db = Database()
-        recent = db.get_recent_matches(1)
-        if not recent:
-            self.status_label.setText("No matches found in database.")
-            return
-            
-        match = recent[0]
-        match_id = match['match_id']
+    def on_match_selected(self, index):
+        match_id = self.match_selector.itemData(index)
+        if match_id is not None:
+             self.load_match(match_id)
+             self.score_layout.setEnabled(True)
+
+    def load_match(self, match_id):
         self.current_match_id = match_id
         
-        # Update status label with match info
-        map_name = match.get('map_name', 'Unknown Map')
-        result = "Win" if (match['winning_team'] == match.get('user_team')) else "Loss" # Note: check DB schema for user_team logic or infer
-        # Simplified for now:
-        self.status_label.setText(f"Match #{match_id} - {map_name} - {match['winning_team']} Won")
-
-        cursor = db.connection.cursor()
+        cursor = self.db.connection.cursor()
+        
+        # Get scores
+        cursor.execute("SELECT red_score, blue_score FROM matches WHERE match_id = ?", (match_id,))
+        row = cursor.fetchone()
+        if row:
+            self.current_red_score = row[0]
+            self.current_blue_score = row[1]
+            self.red_score_btn.setText(f"Red: {row[0]}")
+            self.blue_score_btn.setText(f"Blue: {row[1]}")
+            
+        # Get participants
         cursor.execute("SELECT char_name, profession, team_color, is_user FROM match_participants WHERE match_id = ?", (match_id,))
         parts = cursor.fetchall()
 
@@ -178,8 +228,7 @@ class MatchAnalysisWidget(QWidget):
             profession = p[1]
             team = p[2]
             is_user = bool(p[3])
-            # For analysis panel we might want current winrates
-            win_rate, total = db.get_player_winrate(name)
+            win_rate, total = self.db.get_player_winrate(name)
             players.append({
                 'name': name,
                 'profession': profession,
@@ -190,7 +239,52 @@ class MatchAnalysisWidget(QWidget):
             })
 
         self.analysis_panel.show_players(players)
-        db.close()
+
+    def update_player_name(self, old_name, new_name):
+        if not self.current_match_id: return
+        if not new_name.strip(): return 
+
+        try:
+            cursor = self.db.connection.cursor()
+            
+            # Ensure new player exists in players table to satisfy FK
+            cursor.execute("SELECT 1 FROM players WHERE char_name = ?", (new_name,))
+            if not cursor.fetchone():
+                 cursor.execute("INSERT INTO players (char_name) VALUES (?)", (new_name,))
+
+            # Update match_participants
+            cursor.execute("""
+                UPDATE match_participants 
+                SET char_name = ? 
+                WHERE match_id = ? AND char_name = ?
+            """, (new_name, self.current_match_id, old_name))
+            
+            self.db.connection.commit()
+            self.load_match(self.current_match_id)
+            
+        except Exception as e:
+            QMessageBox.warning(self, "Update Failed", f"Failed to update name: {e}")
+
+    def update_player_profession(self, player_name, new_profession):
+        if not self.current_match_id: return
+            
+        try:
+            cursor = self.db.connection.cursor()
+            cursor.execute("""
+                UPDATE match_participants 
+                SET profession = ? 
+                WHERE match_id = ? AND char_name = ?
+            """, (new_profession, self.current_match_id, player_name))
+            
+            self.db.connection.commit()
+            self.load_match(self.current_match_id)
+            
+        except Exception as e:
+            QMessageBox.warning(self, "Update Failed", f"Failed to update profession: {e}")
+
+    def load_latest_match(self):
+        # Legacy stub if called from elsewhere, redirect to refresh
+        self.refresh_data()
 
 
 class MainWindow(QMainWindow):
