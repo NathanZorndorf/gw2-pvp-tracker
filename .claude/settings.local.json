@@ -15,7 +15,11 @@
       "Bash(python*)",
       "Bash(python -m pytest:*)",
       "Bash(python process_icons.py:*)",
-      "Bash(tee:*)"
+      "Bash(tee:*)",
+      "WebFetch(domain:blishhud.com)",
+      "WebFetch(domain:github.com)",
+      "WebSearch",
+      "WebFetch(domain:wiki.guildwars2.com)"
     ],
     "deny": [],
     "ask": []
