@@ -89,7 +89,7 @@ def extract_names_via_ocr(samples_dir: Path, config_path: Path) -> Tuple[List[st
             config = yaml.safe_load(f)
 
         # Use EasyOCR
-        method = EasyOCRMethod(use_gpu=False, resize_factor=2.0)
+        method = EasyOCRMethod(use_gpu=True, resize_factor=2.0)
 
         # Find match_start screenshot
         start_images = list(samples_dir.glob('match_start_*.png'))

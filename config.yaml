@@ -19,10 +19,6 @@ cv:
   - 1.1
   - 1.2
 ocr:
-  engine: easyocr
-  tesseract_path: C:/Program Files/Tesseract-OCR/tesseract.exe
-  name_psm: 7
-  score_psm: 7
   score_whitelist: 0123456789
   name_whitelist: "A\xC0\xC1\xC2\xC3\xC4\xC5\xC6BC\xC7D\xD0E\xC8\xC9\xCA\xCBFGHI\xCC\
     \xCD\xCE\xCFJKLMN\xD1O\xD2\xD3\xD4\xD5\xD6\xD8\u0152PQRS\u1E9ETU\xD9\xDA\xDB\xDC\
@@ -33,8 +29,6 @@ ocr:
     \xEB\xCF\xEF\xD6\xF6\xDC\xFC\xC7\xE7\xD1\xF1\xE6. "
   use_clahe: true
   resize_factor: 2.0
-fuzzy:
-  name_match_threshold: 80
 arena_type_detection:
   x: 1240
   y: 408

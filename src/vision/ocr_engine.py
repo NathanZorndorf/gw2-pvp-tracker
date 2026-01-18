@@ -5,9 +5,7 @@ Handles image preprocessing and OCR integration (EasyOCR or Tesseract).
 
 import cv2
 import numpy as np
-import pytesseract
 from typing import List, Tuple, Optional
-from thefuzz import process
 import logging
 
 logger = logging.getLogger(__name__)
@@ -18,8 +16,6 @@ class OCREngine:
 
     def __init__(
         self,
-        engine: str = "easyocr",
-        tesseract_path: Optional[str] = None,
         name_whitelist: str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz. ",
         score_whitelist: str = "0123456789",
         use_clahe: bool = True,
@@ -29,31 +25,23 @@ class OCREngine:
         Initialize OCR engine.
 
         Args:
-            engine: OCR engine to use ("easyocr" or "tesseract")
-            tesseract_path: Path to tesseract executable
             name_whitelist: Characters allowed in player names
             score_whitelist: Characters allowed in scores
             use_clahe: Whether to use CLAHE contrast enhancement
             resize_factor: Scale factor for OCR preprocessing
         """
-        self.engine = engine.lower()
         self.use_clahe = use_clahe
         self.resize_factor = resize_factor
         self.name_whitelist = name_whitelist
         self.score_whitelist = score_whitelist
         self.easyocr_reader = None
 
-        if tesseract_path:
-            pytesseract.pytesseract.tesseract_cmd = tesseract_path
+        self._init_easyocr()
 
-        # Initialize EasyOCR if selected
-        if self.engine == "easyocr":
-            self._init_easyocr()
-
-        logger.info(f"OCR engine initialized (engine={self.engine}, clahe={use_clahe})")
+        logger.info(f"OCR engine initialized (clahe={use_clahe})")
 
     def _init_easyocr(self):
-        """Initialize EasyOCR reader (lazy loading)."""
+        """Initialize EasyOCR reader."""
         try:
             import easyocr
             # Use multiple languages to support accented characters (ô, ë, ä, ö, á, etc.)
@@ -63,13 +51,11 @@ class OCREngine:
                 gpu=True,
                 verbose=False
             )
-            logger.info("EasyOCR reader initialized with multi-language support")
+            logger.info("EasyOCR reader initialized with multi-language support (GPU enabled)")
         except ImportError:
-            logger.warning("EasyOCR not installed, falling back to Tesseract")
-            self.engine = "tesseract"
+            logger.error("EasyOCR not installed. Run: pip install easyocr")
         except Exception as e:
-            logger.error(f"Failed to initialize EasyOCR: {e}, falling back to Tesseract")
-            self.engine = "tesseract"
+            logger.error(f"Failed to initialize EasyOCR: {e}")
 
     def apply_clahe(self, image: np.ndarray) -> np.ndarray:
         """
@@ -143,16 +129,13 @@ class OCREngine:
     def extract_text(
         self,
         image: np.ndarray,
-        psm: int = 7,
         whitelist: Optional[str] = None,
         preprocess: bool = True
     ) -> str:
         """
-        Extract text from image using configured OCR engine.
+        Extract text from image using EasyOCR.
 
         Args:
-            image: Input image
-            psm: Page segmentation mode (7 = single line, Tesseract only)
             whitelist: Character whitelist
             preprocess: Whether to preprocess image
 
@@ -166,11 +149,12 @@ class OCREngine:
             else:
                 processed = image
 
-            # Use appropriate OCR engine
-            if self.engine == "easyocr" and self.easyocr_reader:
+            # Use EasyOCR
+            if self.easyocr_reader:
                 return self._extract_with_easyocr(processed, whitelist)
             else:
-                return self._extract_with_tesseract(processed, psm, whitelist)
+                logger.error("EasyOCR reader not initialized")
+                return ""
 
         except Exception as e:
             logger.error(f"OCR extraction failed: {e}")
@@ -219,62 +203,25 @@ class OCREngine:
             logger.error(f"EasyOCR extraction failed: {e}")
             return ""
 
-    def _extract_with_tesseract(
-        self,
-        image: np.ndarray,
-        psm: int = 7,
-        whitelist: Optional[str] = None
-    ) -> str:
-        """Extract text using Tesseract."""
-        # For Tesseract, apply additional preprocessing
-        processed = self.preprocess_for_ocr(image)
-
-        # Build Tesseract config
-        config_parts = [f"--psm {psm}"]
-        if whitelist:
-            config_parts.append(f"-c tessedit_char_whitelist={whitelist}")
-        config = " ".join(config_parts)
-
-        # Run OCR
-        text = pytesseract.image_to_string(processed, config=config).strip()
-        logger.debug(f"Tesseract extracted: '{text}'")
-
-        return text
-
     def extract_player_name(
         self,
-        image: np.ndarray,
-        known_names: Optional[List[str]] = None,
-        fuzzy_threshold: int = 80
+        image: np.ndarray
     ) -> str:
         """
-        Extract player name with fuzzy matching correction.
+        Extract player name from image.
 
         Args:
             image: Image region containing player name
-            known_names: List of known player names for fuzzy matching
-            fuzzy_threshold: Minimum similarity score (0-100)
 
         Returns:
-            Extracted and corrected player name
+            Extracted player name
         """
         # OCR with name whitelist
         raw_text = self.extract_text(
             image,
-            psm=7,
             whitelist=self.name_whitelist,
             preprocess=True
         )
-
-        # If no known names, return raw OCR
-        if not known_names or not raw_text:
-            return raw_text
-
-        # Fuzzy match against known names
-        match, score = process.extractOne(raw_text, known_names)
-        if score >= fuzzy_threshold:
-            logger.debug(f"Fuzzy matched '{raw_text}' -> '{match}' (score: {score})")
-            return match
 
         return raw_text
 

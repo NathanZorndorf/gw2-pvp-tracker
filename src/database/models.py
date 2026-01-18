@@ -194,7 +194,7 @@ class Database:
         return dict(row) if row else None
 
     def get_all_player_names(self) -> List[str]:
-        """Get all known player names for fuzzy matching."""
+        """Get all known player names from the database."""
         cursor = self.connection.cursor()
         cursor.execute("SELECT char_name FROM players")
         return [row[0] for row in cursor.fetchall()]

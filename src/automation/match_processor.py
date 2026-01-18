@@ -172,27 +172,29 @@ class MatchProcessor:
                 # Or we can just run a quick check if we assume the user is rendering the MumbleLink data? NO.
                 # We need to match MumbleLink name to one of the regions to ID the team.
                 
-                # Check fuzzy matching against all regions
+                # Check matching against all regions
                 # This could be expensive, so we only do it if we have the name
-                from thefuzz import process
                 
                 # Extract text from all regions
                 extracted_names = []
                 for idx, (region, team) in enumerate(name_regions):
-                    text = self.ocr.extract_text(region, psm=7, preprocess=True)
+                    text = self.ocr.extract_text(region, preprocess=True)
                     if text:
                         extracted_names.append((text, team, idx))
                 
                 # Find best match for mumble_name
                 if extracted_names:
-                    choices = [x[0] for x in extracted_names]
-                    match, score = process.extractOne(mumble_name, choices)
-                    if score > 85: # High confidence verification
-                        # Find the team
-                        for text, team, idx in extracted_names:
-                            if text == match:
-                                logger.info(f"Matched MumbleLink name '{mumble_name}' to OCR '{text}' on {team} team (score: {score})")
-                                return mumble_name, team, 1.0
+                    # Simple exact-match check (case-insensitive)
+                    for text, team, idx in extracted_names:
+                        if text.lower() == mumble_name.lower():
+                            logger.info(f"Matched MumbleLink name '{mumble_name}' to OCR '{text}' on {team} team")
+                            return mumble_name, team, 1.0
+                    
+                    # Substring check as secondary (e.g. OCR missed a letter)
+                    for text, team, idx in extracted_names:
+                        if mumble_name.lower() in text.lower() or text.lower() in mumble_name.lower():
+                            logger.info(f"Partial match MumbleLink name '{mumble_name}' to OCR '{text}' on {team} team")
+                            return mumble_name, team, 0.9
 
             # Fallback to Bold Text Detection if MumbleLink failed or couldn't be matched
             # Detect bold text
@@ -201,15 +203,8 @@ class MatchProcessor:
             # Extract the bold player's name
             bold_region, team = name_regions[bold_index]
 
-            # Get known names for fuzzy matching
-            known_names = self.db.get_all_player_names()
-
             # OCR the name
-            user_name = self.ocr.extract_player_name(
-                bold_region,
-                known_names=known_names,
-                fuzzy_threshold=self.config.get('fuzzy.name_match_threshold', 80)
-            )
+            user_name = self.ocr.extract_player_name(bold_region)
 
             if not user_name:
                 logger.warning("Failed to extract bold player name")
@@ -431,10 +426,6 @@ class MatchProcessor:
                 image, regions_config, arena_type=self._current_arena_type
             )
 
-            # Get known names for fuzzy matching
-            known_names = self.db.get_all_player_names()
-            fuzzy_threshold = self.config.get('fuzzy.name_match_threshold', 80)
-
             # Detect professions from image
             professions = self._detect_professions_from_image(image)
 
@@ -459,23 +450,11 @@ class MatchProcessor:
                     )
 
                 # Run OCR on the already-preprocessed crop (skip internal preprocessing)
-                raw_text = self.ocr.extract_text(
+                name = self.ocr.extract_text(
                     region,
-                    psm=7,
                     whitelist=self.ocr.name_whitelist,
                     preprocess=False
                 )
-
-                # If fuzzy matching data exists, attempt to correct OCR output
-                name = raw_text
-                if known_names and raw_text:
-                    try:
-                        from thefuzz import process
-                        match, score = process.extractOne(raw_text, known_names)
-                        if score >= fuzzy_threshold:
-                            name = match
-                    except Exception:
-                        pass
 
                 if not name:
                     name = f"Unknown_{idx}"

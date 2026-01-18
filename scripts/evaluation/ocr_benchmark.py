@@ -67,137 +67,12 @@ class OCRMethod(ABC):
         pass
 
 
-class TesseractMethod(OCRMethod):
-    """Tesseract OCR with configurable options."""
-
-    def __init__(
-        self,
-        tesseract_path: Optional[str] = None,
-        psm: int = 7,
-        oem: int = 3,
-        resize_factor: float = 2.0,
-        use_adaptive_threshold: bool = True,
-        use_denoise: bool = True,
-        method_suffix: str = ""
-    ):
-        import pytesseract
-        if tesseract_path:
-            pytesseract.pytesseract.tesseract_cmd = tesseract_path
-        self.pytesseract = pytesseract
-        self.psm = psm
-        self.oem = oem
-        self.resize_factor = resize_factor
-        self.use_adaptive_threshold = use_adaptive_threshold
-        self.use_denoise = use_denoise
-        self.method_suffix = method_suffix
-
-    @property
-    def name(self) -> str:
-        base = f"Tesseract(psm={self.psm},oem={self.oem},resize={self.resize_factor}x"
-        if self.use_adaptive_threshold:
-            base += ",adaptive"
-        if self.use_denoise:
-            base += ",denoise"
-        base += ")"
-        if self.method_suffix:
-            base += f" {self.method_suffix}"
-        return base
-
-    def _preprocess(self, image: np.ndarray, for_digits: bool = False) -> np.ndarray:
-        """Preprocess image for OCR."""
-        # Convert to grayscale
-        if len(image.shape) == 3:
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        else:
-            gray = image.copy()
-
-        # Resize
-        if self.resize_factor != 1.0:
-            width = int(gray.shape[1] * self.resize_factor)
-            height = int(gray.shape[0] * self.resize_factor)
-            gray = cv2.resize(gray, (width, height), interpolation=cv2.INTER_CUBIC)
-
-        # Apply threshold
-        if self.use_adaptive_threshold:
-            processed = cv2.adaptiveThreshold(
-                gray, 255,
-                cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                cv2.THRESH_BINARY_INV,
-                11, 2
-            )
-        else:
-            # Simple Otsu threshold
-            _, processed = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-
-        # Denoise
-        if self.use_denoise:
-            processed = cv2.fastNlMeansDenoising(processed, None, 10, 7, 21)
-
-        return processed
-
-    def extract_text(self, image: np.ndarray) -> ExtractionResult:
-        processed = self._preprocess(image, for_digits=False)
-        config = f"--psm {self.psm} --oem {self.oem}"
-
-        try:
-            # Get detailed data for confidence
-            data = self.pytesseract.image_to_data(processed, config=config, output_type=self.pytesseract.Output.DICT)
-
-            # Extract text and confidence
-            texts = []
-            confidences = []
-            for i, text in enumerate(data['text']):
-                if text.strip():
-                    texts.append(text)
-                    conf = data['conf'][i]
-                    if conf > 0:
-                        confidences.append(conf / 100.0)
-
-            result_text = ' '.join(texts)
-            avg_conf = sum(confidences) / len(confidences) if confidences else 0.0
-
-            return ExtractionResult(
-                value=result_text,
-                confidence=avg_conf,
-                raw_output=result_text
-            )
-        except Exception as e:
-            logger.error(f"Tesseract extraction failed: {e}")
-            return ExtractionResult(value="", confidence=0.0, raw_output="")
-
-    def extract_digits(self, image: np.ndarray) -> ExtractionResult:
-        processed = self._preprocess(image, for_digits=True)
-        config = f"--psm {self.psm} --oem {self.oem} -c tessedit_char_whitelist=0123456789"
-
-        try:
-            text = self.pytesseract.image_to_string(processed, config=config).strip()
-
-            # Try to parse as integer
-            try:
-                value = int(text) if text else None
-            except ValueError:
-                value = None
-
-            return ExtractionResult(
-                value=value,
-                confidence=1.0 if value is not None else 0.0,
-                raw_output=text
-            )
-        except Exception as e:
-            logger.error(f"Tesseract digit extraction failed: {e}")
-            return ExtractionResult(value=None, confidence=0.0, raw_output="")
-
-
 class EasyOCRMethod(OCRMethod):
     """EasyOCR with GPU/CPU support."""
 
     # Default languages for GW2 player names with accented characters (ô, ë, ä, ö, á, etc.)
     DEFAULT_LANGUAGES = [
-        'en', 'fr', 'de', 'es', 'pt', # Your original list
-        'it', 'nl', 'da', 'no', 'sv', # Western/Northern Europe
-        'is', 'fo', 'fi', 'et',       # Nordic/Baltic
-        'pl', 'cs', 'sk', 'hu', 'ro', # Central/Eastern Europe
-        'ca', 'tr'                    # Mediterranean
+        'en', 'fr', 'de', 'es'
     ]   
 
     def __init__(self, use_gpu: bool = True, resize_factor: float = 2.0, languages: Optional[List[str]] = None):
@@ -427,8 +302,8 @@ class OCRBenchmark:
 
     def _calculate_similarity(self, extracted: str, expected: str) -> float:
         """Calculate similarity between extracted and expected text."""
-        from thefuzz import fuzz
-        return fuzz.ratio(extracted.lower(), expected.lower()) / 100.0
+        import difflib
+        return difflib.SequenceMatcher(None, extracted.lower(), expected.lower()).ratio()
 
     def benchmark_method(self, method: OCRMethod) -> BenchmarkResult:
         """Run benchmark for a single OCR method."""
@@ -456,41 +331,43 @@ class OCRBenchmark:
 
             logger.info(f"Testing {method.name} on {sample['filename']}")
 
-            # Test score extraction
-            red_region, blue_region = self._get_score_regions(image)
+            # Test score extraction (only for end match screens)
+            is_end_screen = 'end' in sample['filename'].lower()
+            if is_end_screen:
+                red_region, blue_region = self._get_score_regions(image)
 
-            # Save score regions for debugging if enabled
-            self._save_region_if_debug(red_region, f"{sample['filename']}_red_score.png")
-            self._save_region_if_debug(blue_region, f"{sample['filename']}_blue_score.png")
+                # Save score regions for debugging if enabled
+                self._save_region_if_debug(red_region, f"{sample['filename']}_red_score.png")
+                self._save_region_if_debug(blue_region, f"{sample['filename']}_blue_score.png")
 
-            red_result = method.extract_digits(red_region)
-            blue_result = method.extract_digits(blue_region)
+                red_result = method.extract_digits(red_region)
+                blue_result = method.extract_digits(blue_region)
 
-            expected_red = sample['scores']['red']
-            expected_blue = sample['scores']['blue']
+                expected_red = sample['scores']['red']
+                expected_blue = sample['scores']['blue']
 
-            red_correct = red_result.value == expected_red
-            blue_correct = blue_result.value == expected_blue
+                red_correct = red_result.value == expected_red
+                blue_correct = blue_result.value == expected_blue
 
-            result.score_results.append({
-                'file': sample['filename'],
-                'team': 'red',
-                'expected': expected_red,
-                'extracted': red_result.value,
-                'raw': red_result.raw_output,
-                'correct': red_correct
-            })
-            result.score_results.append({
-                'file': sample['filename'],
-                'team': 'blue',
-                'expected': expected_blue,
-                'extracted': blue_result.value,
-                'raw': blue_result.raw_output,
-                'correct': blue_correct
-            })
+                result.score_results.append({
+                    'file': sample['filename'],
+                    'team': 'red',
+                    'expected': expected_red,
+                    'extracted': red_result.value,
+                    'raw': red_result.raw_output,
+                    'correct': red_correct
+                })
+                result.score_results.append({
+                    'file': sample['filename'],
+                    'team': 'blue',
+                    'expected': expected_blue,
+                    'extracted': blue_result.value,
+                    'raw': blue_result.raw_output,
+                    'correct': blue_correct
+                })
 
-            total_scores += 2
-            correct_scores += (1 if red_correct else 0) + (1 if blue_correct else 0)
+                total_scores += 2
+                correct_scores += (1 if red_correct else 0) + (1 if blue_correct else 0)
 
             # Test name extraction (only if team data exists in ground truth)
             if 'red_team' in sample and 'blue_team' in sample:
@@ -531,9 +408,8 @@ class OCRBenchmark:
 
                     similarity = self._calculate_similarity(extracted, expected_name)
 
-                    # Full-name fuzzy acceptance (90% threshold)
-                    fuzzy_accept = similarity >= 0.90
-                    is_correct = extracted.lower() == expected_name.lower() or fuzzy_accept
+                    # Exact match check (case-insensitive)
+                    is_correct = extracted.lower() == expected_name.lower()
 
                     result.name_results.append({
                         'file': sample['filename'],
@@ -543,8 +419,7 @@ class OCRBenchmark:
                         'extracted': extracted,
                         'raw': raw_extracted,
                         'correct': is_correct,
-                        'similarity': similarity,
-                        'fuzzy_accepted': bool(fuzzy_accept)
+                        'similarity': similarity
                     })
 
                     total_names += 1
@@ -618,10 +493,9 @@ def main():
     project_root = Path(__file__).parent.parent.parent
     config_path = project_root / "config.yaml"
 
-    # Load tesseract path from config
+    # Load config
     with open(config_path, 'r', encoding='utf-8') as f:
         config = yaml.safe_load(f)
-    tesseract_path = config.get('ocr', {}).get('tesseract_path')
 
     # Determine which sample directories to test
     samples_base = project_root / "data" / "samples"
@@ -655,52 +529,9 @@ def main():
 
         print(f"Detected arena type: {benchmark.arena_type}")
 
-        # Add Tesseract variants
-        benchmark.add_method(TesseractMethod(
-            tesseract_path=tesseract_path,
-            psm=7, oem=3, resize_factor=2.0,
-            use_adaptive_threshold=True, use_denoise=True,
-            method_suffix="[default]"
-        ))
-
-        benchmark.add_method(TesseractMethod(
-            tesseract_path=tesseract_path,
-            psm=7, oem=1, resize_factor=2.0,
-            use_adaptive_threshold=True, use_denoise=True,
-            method_suffix="[LSTM]"
-        ))
-
-        benchmark.add_method(TesseractMethod(
-            tesseract_path=tesseract_path,
-            psm=7, oem=3, resize_factor=3.0,
-            use_adaptive_threshold=True, use_denoise=True,
-            method_suffix="[3x]"
-        ))
-
-        benchmark.add_method(TesseractMethod(
-            tesseract_path=tesseract_path,
-            psm=7, oem=3, resize_factor=2.0,
-            use_adaptive_threshold=False, use_denoise=True,
-            method_suffix="[Otsu]"
-        ))
-
-        benchmark.add_method(TesseractMethod(
-            tesseract_path=tesseract_path,
-            psm=7, oem=3, resize_factor=2.0,
-            use_adaptive_threshold=True, use_denoise=False,
-            method_suffix="[no denoise]"
-        ))
-
-        benchmark.add_method(TesseractMethod(
-            tesseract_path=tesseract_path,
-            psm=8, oem=3, resize_factor=2.0,
-            use_adaptive_threshold=True, use_denoise=True,
-            method_suffix="[word]"
-        ))
-
         # Add EasyOCR
-        benchmark.add_method(EasyOCRMethod(use_gpu=False, resize_factor=2.0))
-        benchmark.add_method(EasyOCRMethod(use_gpu=False, resize_factor=3.0))
+        benchmark.add_method(EasyOCRMethod(use_gpu=True, resize_factor=2.0))
+        # benchmark.add_method(EasyOCRMethod(use_gpu=True, resize_factor=3.0))
 
         # Run benchmarks
         print(f"Number of methods: {len(benchmark.methods)}")

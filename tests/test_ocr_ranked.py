@@ -21,7 +21,7 @@ RANKED_FOLDERS = sorted([
 @pytest.fixture(scope="session")
 def easyocr_method():
     """Share EasyOCR reader across all tests in the session."""
-    return EasyOCRMethod(use_gpu=False, resize_factor=2.0, languages=['en', 'es', 'fr', 'pt', 'de'])
+    return EasyOCRMethod(use_gpu=True, resize_factor=2.0, languages=['en', 'es', 'fr', 'pt', 'de'])
 
 def create_benchmark(folder, method):
     if not (folder / "ground_truth.yaml").exists():
