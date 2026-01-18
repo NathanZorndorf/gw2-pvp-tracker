@@ -175,8 +175,8 @@ class LiveCapture:
             logger.error(f"Failed to capture match end: {e}")
             print(f"  -> ERROR: {e}\n")
 
-    def exit_program(self):
-        """Exit the program."""
+    def _detect_players_from_screenshot(self, screenshot_path):
+        """Detect players from start screenshot for overlay."""
         try:
             from automation.match_processor import MatchProcessor
             from database.models import Database
@@ -191,7 +191,13 @@ class LiveCapture:
                 raise ValueError(f"Failed to load image: {screenshot_path}")
 
             # Detect arena type from image (map selection is separate)
-            processor.detect_arena_type(image)
+            detected_type = processor.detect_arena_type(image)
+            
+            if detected_type is None:
+                print("  -> WARNING: Arena type could not be detected. Is the scoreboard open?")
+                print("  -> Skipping player extraction to avoid garbage data.")
+                self.detected_players = []
+                return
 
             # Extract all players
             players_data = processor._extract_all_players(image, "start")
@@ -283,25 +289,26 @@ class LiveCapture:
 
                 if match_data['validation_errors']:
                     print(f"  -> Warnings: {', '.join(match_data['validation_errors'])}")
+
+                # Log to database (best-effort)
+                match_id = processor.log_match(
+                    match_data,
+                    self.match_screenshots['start'],
+                    self.match_screenshots['end'],
+                    map_name=match_data.get('map_name')
+                )
+
+                # Display result
+                winner = 'Blue' if match_data.get('blue_score', 0) > match_data.get('red_score', 0) else 'Red'
+                user_result = 'WIN' if match_data.get('user_team', '').lower() == winner.lower() else 'LOSS'
+
+                print(f"\n  -> Match #{match_id} logged successfully!")
+                print(f"  -> Result: {user_result}")
+                print(f"  -> Run 'python view_stats.py' to see updated stats\n")
+
             else:
                 print(f"  -> ERROR: {match_data['error']}")
-                print(f"  -> Match will be logged with partial data")
-
-            # Log to database (best-effort)
-            match_id = processor.log_match(
-                match_data,
-                self.match_screenshots['start'],
-                self.match_screenshots['end'],
-                map_name=match_data.get('map_name')
-            )
-
-            # Display result
-            winner = 'Blue' if match_data.get('blue_score', 0) > match_data.get('red_score', 0) else 'Red'
-            user_result = 'WIN' if match_data.get('user_team', '').lower() == winner.lower() else 'LOSS'
-
-            print(f"\n  -> Match #{match_id} logged successfully!")
-            print(f"  -> Result: {user_result}")
-            print(f"  -> Run 'python view_stats.py' to see updated stats\n")
+                print(f"  -> Match processing aborted. Nothing logged database.")
 
             db.close()
 

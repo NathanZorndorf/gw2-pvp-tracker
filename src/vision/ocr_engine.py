@@ -243,7 +243,6 @@ class OCREngine:
         # OCR with digits only
         text = self.extract_text(
             image,
-            psm=7,
             whitelist=self.score_whitelist,
             preprocess=True
         )
@@ -307,8 +306,7 @@ class OCREngine:
 
             # OCR name
             name = self.extract_player_name(
-                name_region,
-                known_names=known_names
+                name_region
             )
 
             names.append(name if name else f"Unknown_{row_idx}")
@@ -585,7 +583,7 @@ class OCREngine:
         image: np.ndarray,
         roster_regions: dict,
         detection_region: Optional[dict] = None
-    ) -> Tuple[str, float]:
+    ) -> Tuple[Optional[str], float]:
         """
         Detect arena type (ranked vs unranked) by testing OCR with both region sets.
 
@@ -692,6 +690,10 @@ class OCREngine:
         # Compare by valid extractions first, then by total score
         ranked_valid, ranked_score = arena_scores.get('ranked', (0, 0))
         unranked_valid, unranked_score = arena_scores.get('unranked', (0, 0))
+
+        if ranked_valid == 0 and unranked_valid == 0:
+            logger.warning("Arena detection failed: No valid player names found in either layout.")
+            return None, 0.0
 
         if ranked_valid > unranked_valid:
             confidence = (ranked_valid - unranked_valid) / 10.0

@@ -36,8 +36,6 @@ class MatchProcessor:
 
         # Initialize OCR engine with new settings
         self.ocr = OCREngine(
-            engine=config.get('ocr.engine', 'easyocr'),
-            tesseract_path=config.get('ocr.tesseract_path'),
             name_whitelist=config.get('ocr.name_whitelist'),
             score_whitelist=config.get('ocr.score_whitelist'),
             use_clahe=config.get('ocr.use_clahe', True),
@@ -82,7 +80,7 @@ class MatchProcessor:
             # Legacy format - return the whole config
             return regions_config
 
-    def detect_arena_type(self, image: np.ndarray) -> str:
+    def detect_arena_type(self, image: np.ndarray) -> Optional[str]:
         """
         Detect and store the arena type from a screenshot.
 
@@ -90,12 +88,18 @@ class MatchProcessor:
             image: Screenshot image
 
         Returns:
-            Detected arena type ('ranked' or 'unranked')
+            Detected arena type ('ranked' or 'unranked') or None if detection failed
         """
         regions_config = self.config.get('roster_regions')
         detection_region = self.config.get('arena_type_detection')
         
         arena_type, confidence = self.ocr.detect_arena_type(image, regions_config, detection_region)
+        
+        if arena_type is None:
+            logger.warning("Arena type detection failed (confidence: 0.0)")
+            self._current_arena_type = None
+            return None
+
         self._current_arena_type = arena_type
         logger.info(f"Arena type set to: {arena_type} (confidence: {confidence:.2f})")
         return arena_type
@@ -253,7 +257,15 @@ class MatchProcessor:
             # Prefer start screenshot for detection since it has cleaner player names
             if self._current_arena_type is None:
                 detection_img = start_img if start_img is not None else end_img
-                self.detect_arena_type(detection_img)
+                detected_type = self.detect_arena_type(detection_img)
+                
+                if detected_type is None:
+                    error_msg = "Arena type detection failed - cannot proceed with extraction. Check your resolution settings."
+                    logger.error(error_msg)
+                    return {
+                        'success': False,
+                        'error': error_msg
+                    }
 
             # Extract scores (from end screenshot)
             red_score, blue_score = self._extract_scores(end_img, "end")
