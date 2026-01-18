@@ -11,9 +11,11 @@ from PIL import Image, ImageTk
 
 from .styles import (
     COLORS, FONTS, OVERLAY_WIDTH, OVERLAY_MIN_HEIGHT,
-    PADDING_OUTER, PADDING_INNER, SECTION_SPACING, ICON_SIZE
+    PADDING_OUTER, PADDING_INNER, SECTION_SPACING, ICON_SIZE,
+    get_winrate_color
 )
 from .player_card import PlayerCard, PlayerStats
+from analysis.win_rate_utils import calculate_win_probability
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +169,59 @@ class WinRateOverlay:
         # Separate players by team
         red_players = [p for p in players if p.team == 'red']
         blue_players = [p for p in players if p.team == 'blue']
+
+        # Determine user's team
+        user_team = 'blue'
+        has_user = False
+        for p in players:
+            if p.is_user:
+                user_team = p.team
+                has_user = True
+                break
+
+        # Win Probability
+        blue_win_rates = [p.win_rate for p in blue_players]
+        red_win_rates = [p.win_rate for p in red_players]
+        blue_match_counts = [p.total_matches for p in blue_players]
+        red_match_counts = [p.total_matches for p in red_players]
+        
+        # Calculate win prob (default to 50 if no players detected yet)
+        if blue_win_rates and red_win_rates:
+            blue_prob, confidence = calculate_win_probability(
+                red_win_rates, blue_win_rates, 
+                red_match_counts, blue_match_counts
+            )
+            
+            # Show prob for user's team
+            show_prob = blue_prob if user_team == 'blue' else (100.0 - blue_prob)
+            team_name = "Your Team" if has_user else f"{user_team.title()}"
+
+            prob_frame = tk.Frame(main_frame, bg=COLORS['bg_main'])
+            prob_frame.pack(pady=(0, SECTION_SPACING))
+            
+            tk.Label(
+                prob_frame,
+                text=f"{team_name} Win Chance: ",
+                font=FONTS['header'],
+                fg=COLORS['text_secondary'],
+                bg=COLORS['bg_main']
+            ).pack(side=tk.LEFT)
+            
+            tk.Label(
+                prob_frame,
+                text=f"{show_prob:.1f}%",
+                font=('Segoe UI', 18, 'bold'),
+                fg=get_winrate_color(show_prob),
+                bg=COLORS['bg_main']
+            ).pack(side=tk.LEFT)
+
+            tk.Label(
+                prob_frame,
+                text=f" (Confidence: {confidence:.0f}%)",
+                font=FONTS['small'],
+                fg=COLORS['text_secondary'],
+                bg=COLORS['bg_main']
+            ).pack(side=tk.LEFT, padx=(5, 0))
 
         # Teams container (side by side)
         teams_frame = tk.Frame(main_frame, bg=COLORS['bg_main'])

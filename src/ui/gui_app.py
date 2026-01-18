@@ -296,20 +296,31 @@ class MatchAnalysisWidget(QWidget):
 
         # Score Section
         self.score_layout = QHBoxLayout()
-        self.score_layout.setAlignment(Qt.AlignCenter)
+        self.score_layout.setContentsMargins(0, 2, 0, 2)
+        self.score_layout.setSpacing(10)
         
         # Display scores as plain labels (read-only)
         self.red_score_btn = QLabel("Red: 0")
-        self.red_score_btn.setStyleSheet(f"color: {COLORS['team_red']}; font-weight: bold; font-size: 14px;")
+        self.red_score_btn.setStyleSheet(f"color: {COLORS['team_red']}; font-weight: bold; font-size: 20px;")
         
         self.blue_score_btn = QLabel("Blue: 0")
-        self.blue_score_btn.setStyleSheet(f"color: {COLORS['team_blue']}; font-weight: bold; font-size: 14px;")
+        self.blue_score_btn.setStyleSheet(f"color: {COLORS['team_blue']}; font-weight: bold; font-size: 20px;")
         
+        score_divider = QLabel("-")
+        score_divider.setStyleSheet(f"color: {COLORS['text_primary']}; font-weight: bold; font-size: 20px;")
+        score_divider.setAlignment(Qt.AlignCenter)
+
+        self.score_container = QWidget()
+        self.score_container.setLayout(self.score_layout)
+        self.score_container.setMaximumHeight(40) # Keep it slim
+
+        self.score_layout.addStretch()
         self.score_layout.addWidget(self.red_score_btn)
-        self.score_layout.addWidget(QLabel("-", alignment=Qt.AlignCenter)) 
+        self.score_layout.addWidget(score_divider)
         self.score_layout.addWidget(self.blue_score_btn)
+        self.score_layout.addStretch()
         
-        self.layout.addLayout(self.score_layout)
+        self.layout.addWidget(self.score_container)
 
         self.analysis_panel = WinRatePanel(
             on_profession_change=self.update_player_profession,

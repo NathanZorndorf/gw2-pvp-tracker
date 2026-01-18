@@ -26,7 +26,7 @@ from .styles import COLORS, get_star_count, SYMBOLS, get_winrate_color, FONTS
 from .confidence import format_winrate
 from database.models import Database
 from config import Config
-from analysis.win_rate_utils import get_display_win_rate
+from analysis.win_rate_utils import get_display_win_rate, calculate_win_probability
 
 class ClickableLabel(QLabel):
     doubleClicked = Signal()
@@ -144,35 +144,36 @@ class PlayerCardWidget(QWidget):
 
     def _init_ui(self):
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 3, 6, 3)
+        layout.setContentsMargins(8, 5, 8, 5)
 
         team_label = QLabel(f"[{self.team[0].upper()}]")
-        team_label.setFixedWidth(28)
-        team_label.setStyleSheet(f"color: {COLORS['team_red'] if self.team=='red' else COLORS['team_blue']}; font-weight:600;")
+        team_label.setFixedWidth(35)
+        team_label.setStyleSheet(f"color: {COLORS['team_red'] if self.team=='red' else COLORS['team_blue']}; font-weight:700; font-size: 13px;")
         layout.addWidget(team_label)
 
         stars_label = QLabel()
         stars_label.setTextFormat(Qt.RichText)
         stars_label.setText(stars_display(self.win_rate, self.total_matches))
-        stars_label.setFixedWidth(100)
+        stars_label.setFixedWidth(120)
+        stars_label.setStyleSheet("font-size: 16px;") # Make stars bigger
         layout.addWidget(stars_label)
 
         winrate_text = "NEW" if self.total_matches == 0 else format_winrate(self.win_rate, self.total_matches)
         winrate_label = QLabel(winrate_text)
-        winrate_label.setFixedWidth(70)
+        winrate_label.setFixedWidth(80)
         # color winrate appropriately
         wr_color = COLORS['winrate_new'] if self.total_matches == 0 else get_winrate_color(self.win_rate)
-        winrate_label.setStyleSheet(f"color: {wr_color}; font-family: {FONTS['stats'][0]}; font-size: {FONTS['stats'][1]}px;")
+        winrate_label.setStyleSheet(f"color: {wr_color}; font-family: {FONTS['stats'][0]}; font-size: 13px; font-weight: bold;")
         layout.addWidget(winrate_label)
 
         matches = QLabel(f"({self.total_matches})")
-        matches.setFixedWidth(50)
-        matches.setStyleSheet(f"color: {COLORS['text_secondary']}; font-family: {FONTS['small'][0]}; font-size: {FONTS['small'][1]}px;")
+        matches.setFixedWidth(60)
+        matches.setStyleSheet(f"color: {COLORS['text_secondary']}; font-family: {FONTS['small'][0]}; font-size: 12px;")
         layout.addWidget(matches)
 
         # Icon (Clickable Button)
         icon_btn = QPushButton()
-        icon_btn.setFixedSize(32, 32)
+        icon_btn.setFixedSize(40, 40)
         icon_btn.setFlat(True)
         icon_btn.setCursor(Qt.PointingHandCursor)
         
@@ -191,7 +192,7 @@ class PlayerCardWidget(QWidget):
         
         if icon_path:
             icon_btn.setIcon(QIcon(icon_path))
-            icon_btn.setIconSize(QSize(24, 24))
+            icon_btn.setIconSize(QSize(32, 32))
         else:
             # Placeholder or Unknown
             pass
@@ -204,9 +205,9 @@ class PlayerCardWidget(QWidget):
         name = ClickableLabel(self.name)
         name.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         if self.is_user:
-            name.setStyleSheet(f"font-weight: bold; color: {COLORS['text_header']}; font-family: {FONTS['player_name_user'][0]}; font-size: {FONTS['player_name_user'][1]}px;")
+            name.setStyleSheet(f"font-weight: bold; color: {COLORS['text_header']}; font-family: {FONTS['player_name_user'][0]}; font-size: 13px;")
         else:
-            name.setStyleSheet(f"color: {COLORS['text_primary']}; font-family: {FONTS['player_name'][0]}; font-size: {FONTS['player_name'][1]}px;")
+            name.setStyleSheet(f"color: {COLORS['text_primary']}; font-family: {FONTS['player_name'][0]}; font-size: 13px;")
         
         if self.on_name_change:
             name.setToolTip("Double-click to edit name")
@@ -248,8 +249,13 @@ class WinRatePanel(QWidget):
         self.layout = QVBoxLayout(self)
         self.title = QLabel("Match Analysis")
         self.title.setAlignment(Qt.AlignCenter)
-        self.title.setStyleSheet(f"font-weight: bold; font-size: 16px; color: {COLORS['text_header']}; margin-bottom:10px;")
+        self.title.setStyleSheet(f"font-weight: bold; font-size: 16px; color: {COLORS['text_header']}; margin-bottom:5px;")
         self.layout.addWidget(self.title)
+
+        self.prob_label = QLabel("")
+        self.prob_label.setAlignment(Qt.AlignCenter)
+        self.prob_label.setStyleSheet(f"margin-bottom: 10px;")
+        self.layout.addWidget(self.prob_label)
 
         self.teams_layout = QHBoxLayout()
         self.layout.addLayout(self.teams_layout)
@@ -288,10 +294,44 @@ class WinRatePanel(QWidget):
         red_players = [p for p in players if p.get('team') == 'red']
         blue_players = [p for p in players if p.get('team') == 'blue']
 
+        # Determine user's team
+        user_team = 'blue'
+        has_user = False
+        for p in players:
+            if p.get('is_user'):
+                user_team = p.get('team')
+                has_user = True
+                break
+
+        # Update win probability
+        blue_win_rates = [p.get('win_rate', 50.0) for p in blue_players]
+        red_win_rates = [p.get('win_rate', 50.0) for p in red_players]
+        blue_match_counts = [p.get('total_matches', 0) for p in blue_players]
+        red_match_counts = [p.get('total_matches', 0) for p in red_players]
+        
+        if blue_win_rates and red_win_rates:
+            blue_prob, confidence = calculate_win_probability(
+                red_win_rates, blue_win_rates,
+                red_match_counts, blue_match_counts
+            )
+            
+            # Show prob for user's team
+            show_prob = blue_prob if user_team == 'blue' else (100.0 - blue_prob)
+            team_name = "Your Team" if has_user else f"{user_team.title()}"
+            
+            color = get_winrate_color(show_prob)
+            conf_color = COLORS['text_secondary']
+            self.prob_label.setText(
+                f"{team_name} Win Chance: <span style='color:{color}; font-weight:bold; font-size:18px;'>{show_prob:.1f}%</span> "
+                f"<span style='color:{conf_color}; font-size:12px;'>(Confidence: {confidence:.0f}%)</span>"
+            )
+        else:
+            self.prob_label.setText("")
+
         # Team headers
         def add_team_header(layout, text, color):
             lbl = QLabel(text)
-            lbl.setStyleSheet(f"color:{color}; font-weight:700; font-size:13px; margin-bottom:6px;")
+            lbl.setStyleSheet(f"color:{color}; font-weight:700; font-size:15px; margin-bottom:10px;")
             layout.addWidget(lbl)
 
         add_team_header(self.red_column, "RED TEAM", COLORS['team_red'])
