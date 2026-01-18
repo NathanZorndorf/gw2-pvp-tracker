@@ -57,7 +57,7 @@ class Database:
         # Create matches table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS matches (
-                match_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                match_id INTEGER PRIMARY KEY,
                 timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 red_score INTEGER NOT NULL,
                 blue_score INTEGER NOT NULL,
@@ -75,7 +75,7 @@ class Database:
         # Create match_participants table
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS match_participants (
-                participant_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                participant_id INTEGER PRIMARY KEY,
                 match_id INTEGER NOT NULL,
                 char_name TEXT NOT NULL,
                 profession TEXT NOT NULL,
@@ -378,6 +378,15 @@ class Database:
         # Delete participants and match
         cursor.execute("DELETE FROM match_participants WHERE match_id = ?", (match_id,))
         cursor.execute("DELETE FROM matches WHERE match_id = ?", (match_id,))
+
+        # Reset auto-increment sequence if match_id was the highest (for legacy DBs)
+        try:
+            cursor.execute("SELECT MAX(match_id) FROM matches")
+            max_val = cursor.fetchone()[0] or 0
+            cursor.execute("UPDATE sqlite_sequence SET seq = ? WHERE name = 'matches' AND seq > ?", (max_val, max_val))
+        except sqlite3.OperationalError:
+            # Table sqlite_sequence might not exist if AUTOINCREMENT isn't used
+            pass
 
         # Recompute most played profession for affected players
         affected = {p[0] for p in participants}

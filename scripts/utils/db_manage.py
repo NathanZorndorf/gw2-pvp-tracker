@@ -4,7 +4,7 @@ Database management utilities for GW2 PvP Tracker.
 Commands:
     python scripts/utils/db_manage.py clear          - Clear all data
     python scripts/utils/db_manage.py import <dir>   - Import match from screenshot folder
-    python scripts/utils/db_manage.py import-all     - Import all matches from data/samples/ranked-*
+    python scripts/utils/db_manage.py import-all     - Import all matches from samples and screenshots
     python scripts/utils/db_manage.py status         - Show database statistics
 """
 
@@ -37,11 +37,15 @@ def clear_database(db_path: str = "data/pvp_tracker.db"):
     cursor.execute("DELETE FROM match_participants")
     cursor.execute("DELETE FROM matches")
     cursor.execute("DELETE FROM players")
+    
+    # Reset auto-increment sequences so match IDs start back at #1
+    cursor.execute("DELETE FROM sqlite_sequence WHERE name IN ('matches', 'match_participants')")
+    
     db.connection.commit()
 
     print(f"  Deleted {match_count} matches")
     print(f"  Deleted {player_count} players")
-    print("Database cleared!")
+    print("Database cleared, and Match IDs reset!")
 
     db.close()
 
@@ -111,26 +115,21 @@ def import_match(folder_path: str, db_path: str = "data/pvp_tracker.db"):
         return False
 
 
-def import_all_samples(db_path: str = "data/pvp_tracker.db"):
-    """Import all matches from data/samples/ ranked and unranked folders."""
-    samples_dir = Path("data/samples")
-
-    # Find all ranked and unranked folders
-    folders = sorted(list(samples_dir.glob("ranked-*")) + list(samples_dir.glob("unranked-*")))
-
-    if not folders:
-        print("No ranked-* or unranked-* folders found in data/samples/")
-        return
-
-    print(f"Found {len(folders)} sample folders\n")
-
-    success_count = 0
-    for folder in folders:
-        if import_match(str(folder), db_path):
-            success_count += 1
-        print()
-
-    print(f"Imported {success_count}/{len(folders)} matches successfully")
+def import_all_available(db_path: str = "data/pvp_tracker.db"):
+    """Import all matches from both data/samples/ and screenshots/ folders."""
+    locations = ["data/samples", "screenshots"]
+    
+    found_any = False
+    for loc in locations:
+        path = Path(loc)
+        if path.exists():
+            print(f"--- Processing {loc} ---")
+            bulk_import(str(path), db_path)
+            found_any = True
+            print()
+            
+    if not found_any:
+        print("Neither data/samples/ nor screenshots/ directories found.")
 
 
 def bulk_import(root_path: str, db_path: str = "data/pvp_tracker.db"):
@@ -256,7 +255,7 @@ def main():
             db.close()
 
     elif args.command == "import-all":
-        import_all_samples(args.db)
+        import_all_available(args.db)
 
     elif args.command == "bulk-import":
         if not args.path:
