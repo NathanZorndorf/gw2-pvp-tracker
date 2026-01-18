@@ -5,6 +5,29 @@ samples:
   scores:
     red: 0
     blue: 0
+  red_team:
+  - name: Violet Edge X
+    profession: Virtuoso
+  - name: Kreepr
+    profession: Antiquary
+  - name: Qcrowe
+    profession: Tempest
+  - name: Xinosira
+    profession: Harbinger
+  - name: Marvolo
+    profession: Mesmer
+  blue_team:
+  - name: Dæmonix
+    profession: Reaper
+  - name: Ricoshist
+    profession: Luminary
+  - name: Grocïes
+    profession: Troubadour
+  - name: Fräno
+    profession: Amalgam
+  - name: Rpxz
+    profession: Reaper
+
 - filename: match_end_20260112_201834_full.png
   description: End of match scoreboard
   scores:

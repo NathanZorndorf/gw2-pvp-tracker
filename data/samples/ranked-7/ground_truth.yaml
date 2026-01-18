@@ -12,7 +12,7 @@ samples:
     profession: Paragon
   - name: Twoandahalfmen
     profession: Luminary
-  - name: B A B Y THIEF
+  - name: B A B Y T H I E F
     profession: Antiquary
   - name: Pawstress
     profession: Druid
@@ -27,3 +27,8 @@ samples:
     profession: Spellbreaker
   - name: Il Il Cosmic II II
     profession: Virtuoso
+- filename: match_end_20260111_184515_full.png
+  description: End of match scoreboard
+  scores:
+    red: 127
+    blue: 500

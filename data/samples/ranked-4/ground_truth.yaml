@@ -27,3 +27,8 @@ samples:
     profession: Luminary
   - name: DirtBàggins
     profession: Ritualist
+- filename: match_end_20260110_183642_full.png
+  description: End of match scoreboard
+  scores:
+    red: 423
+    blue: 503

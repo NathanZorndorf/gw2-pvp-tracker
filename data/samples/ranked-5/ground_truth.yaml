@@ -27,3 +27,8 @@ samples:
     profession: Luminary
   - name: Inoch Grayson
     profession: Luminary
+- filename: match_end_20260110_194944_full.png
+  description: End of match scoreboard
+  scores:
+    red: 544
+    blue: 173
