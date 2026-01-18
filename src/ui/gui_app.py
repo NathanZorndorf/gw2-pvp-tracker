@@ -127,10 +127,10 @@ class DatabaseWidget(QWidget):
 
     def refresh_matches(self):
         cursor = self.db.connection.cursor()
-        cursor.execute("SELECT match_id, timestamp, red_score, blue_score, map_name, winning_team, user_char_name FROM matches ORDER BY timestamp DESC LIMIT 200")
+        cursor.execute("SELECT match_id, timestamp, red_score, blue_score, arena_type, map_name, winning_team, user_char_name FROM matches ORDER BY timestamp DESC LIMIT 200")
         rows = cursor.fetchall()
-        self.matches_table.setColumnCount(7)
-        self.matches_table.setHorizontalHeaderLabels(["ID", "Timestamp", "Red", "Blue", "Map", "Winner", "User"])
+        self.matches_table.setColumnCount(8)
+        self.matches_table.setHorizontalHeaderLabels(["ID", "Timestamp", "Red", "Blue", "Type", "Map", "Winner", "User"])
         self.matches_table.setRowCount(len(rows))
         for r, row in enumerate(rows):
             for c, v in enumerate(row):
@@ -306,6 +306,9 @@ class MatchAnalysisWidget(QWidget):
         self.blue_score_btn = QLabel("Blue: 0")
         self.blue_score_btn.setStyleSheet(f"color: {COLORS['team_blue']}; font-weight: bold; font-size: 20px;")
         
+        self.arena_type_label = QLabel("")
+        self.arena_type_label.setStyleSheet(f"color: {COLORS['text_secondary']}; font-style: italic; font-size: 16px; margin-left: 20px;")
+        
         score_divider = QLabel("-")
         score_divider.setStyleSheet(f"color: {COLORS['text_primary']}; font-weight: bold; font-size: 20px;")
         score_divider.setAlignment(Qt.AlignCenter)
@@ -318,6 +321,7 @@ class MatchAnalysisWidget(QWidget):
         self.score_layout.addWidget(self.red_score_btn)
         self.score_layout.addWidget(score_divider)
         self.score_layout.addWidget(self.blue_score_btn)
+        self.score_layout.addWidget(self.arena_type_label)
         self.score_layout.addStretch()
         
         self.layout.addWidget(self.score_container)
@@ -356,7 +360,8 @@ class MatchAnalysisWidget(QWidget):
             else:
                  result_str = "[W]" if m['winning_team'] == user_team else "[L]"
             
-            text = f"#{m['match_id']} {result_str} {map_name} ({m['timestamp']})"
+            arena_type = m.get('arena_type', 'Unknown').capitalize()
+            text = f"#{m['match_id']} {result_str} {map_name} [{arena_type}] ({m['timestamp']})"
             self.match_selector.addItem(text, m['match_id'])
             
             if current_id and m['match_id'] == current_id:
@@ -381,14 +386,16 @@ class MatchAnalysisWidget(QWidget):
         
         cursor = self.db.connection.cursor()
         
-        # Get scores
-        cursor.execute("SELECT red_score, blue_score FROM matches WHERE match_id = ?", (match_id,))
+        # Get scores and arena type
+        cursor.execute("SELECT red_score, blue_score, arena_type FROM matches WHERE match_id = ?", (match_id,))
         row = cursor.fetchone()
         if row:
             self.current_red_score = row[0]
             self.current_blue_score = row[1]
             self.red_score_btn.setText(f"Red: {row[0]}")
             self.blue_score_btn.setText(f"Blue: {row[1]}")
+            arena_type = row[2] or "Unknown"
+            self.arena_type_label.setText(arena_type.capitalize())
             
         # Get participants
         cursor.execute("SELECT char_name, profession, team_color, is_user FROM match_participants WHERE match_id = ?", (match_id,))
