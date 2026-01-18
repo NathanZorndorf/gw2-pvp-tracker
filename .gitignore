@@ -59,3 +59,4 @@ htmlcov/
 
 scripts/processing-pipeline/*.csv
 scripts/processing-pipeline/**/*.png
+screenshots/**/*.png
